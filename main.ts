@@ -3,14 +3,18 @@ import {
   KEY_NOTES,
   MIN_CUTOFF,
   MAX_CUTOFF,
+  VIBRATO_RATE_HZ,
   frequencyForX,
   filterFreqForY,
+  vibratoCentsForSpeed,
 } from "./synth";
 
 interface Voice {
   osc: OscillatorNode;
   gain: GainNode;
   filter: BiquadFilterNode;
+  lfo: OscillatorNode;
+  lfoGain: GainNode;
 }
 
 function required<T>(value: T | null, message: string): T {
@@ -51,6 +55,36 @@ function resizeCanvas(): void {
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 }
 
+// Before anyone touches it, the pad should look alive rather than dead
+// black — a slow drifting glow invites a first touch the way the hint text
+// alone can't. Stops for good on first interaction, and never runs at all
+// for prefers-reduced-motion.
+let interacted = false;
+const reducedMotion = window.matchMedia(
+  "(prefers-reduced-motion: reduce)",
+).matches;
+
+function drawIdleFrame(tMs: number): void {
+  ctx.fillStyle = "#0b0b14";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const cx = canvas.width / 2 + Math.sin(tMs / 3100) * canvas.width * 0.25;
+  const cy = canvas.height / 2 + Math.cos(tMs / 4300) * canvas.height * 0.2;
+  const radius = (40 + Math.sin(tMs / 1300) * 10) * 3;
+  const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+  glow.addColorStop(0, "rgba(138, 180, 255, 0.3)");
+  glow.addColorStop(1, "rgba(138, 180, 255, 0)");
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function idleLoop(tMs: number): void {
+  if (interacted) return;
+  drawIdleFrame(tMs);
+  requestAnimationFrame(idleLoop);
+}
+
 function drawVoicePoint(x: number, y: number, cutoff: number): void {
   ctx.fillStyle = "rgba(11, 11, 20, 0.2)";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -72,10 +106,18 @@ function startVoice(freq: number, cutoffHz: number): Voice {
   filter.frequency.value = cutoffHz;
   const gain = audio.createGain();
   gain.gain.value = 0;
+  // Vibrato depth (lfoGain, in cents) starts at zero and is driven by
+  // pointer speed — a held key or a still pointer stays pure.
+  const lfo = audio.createOscillator();
+  lfo.frequency.value = VIBRATO_RATE_HZ;
+  const lfoGain = audio.createGain();
+  lfoGain.gain.value = 0;
+  lfo.connect(lfoGain).connect(osc.detune);
+  lfo.start();
   osc.connect(filter).connect(gain).connect(bus);
   osc.start();
   gain.gain.linearRampToValueAtTime(0.35, audio.currentTime + 0.04);
-  return { osc, gain, filter };
+  return { osc, gain, filter, lfo, lfoGain };
 }
 
 function stopVoice(voice: Voice): void {
@@ -84,16 +126,21 @@ function stopVoice(voice: Voice): void {
   voice.gain.gain.cancelScheduledValues(now);
   voice.gain.gain.setTargetAtTime(0, now, 0.08);
   voice.osc.stop(now + 0.5);
+  voice.lfo.stop(now + 0.5);
 }
 
 function announcePlaying(): void {
+  interacted = true;
   hint?.setAttribute("hidden", "");
 }
 
 // Pointer (mouse or touch) — one continuous glide per contact point.
 // x = pitch, y = brightness, so different paths across the pad sound
-// different and there's no position that sounds "wrong".
+// different and there's no position that sounds "wrong". Speed of travel
+// (tracked per contact point below) layers vibrato on top, so the same path
+// walked slowly vs. flicked quickly sounds different too.
 const pointerVoices = new Map<number, Voice>();
+const pointerLast = new Map<number, { x: number; y: number; t: number }>();
 
 function pointerPosition(e: PointerEvent): { x: number; y: number } {
   const rect = canvas.getBoundingClientRect();
@@ -104,11 +151,19 @@ function pointerPosition(e: PointerEvent): { x: number; y: number } {
 
 canvas.addEventListener("pointerdown", (e) => {
   announcePlaying();
-  canvas.setPointerCapture(e.pointerId);
+  // Capture keeps the glide going if the pointer drifts outside the pad —
+  // a nice-to-have, not a requirement for sound, so a capture failure must
+  // never silently swallow the voice it's guarding.
+  try {
+    canvas.setPointerCapture(e.pointerId);
+  } catch {
+    // Continue without capture.
+  }
   const { x, y } = pointerPosition(e);
   const freq = frequencyForX(x, canvas.width);
   const cutoff = filterFreqForY(y, canvas.height);
   pointerVoices.set(e.pointerId, startVoice(freq, cutoff));
+  pointerLast.set(e.pointerId, { x, y, t: e.timeStamp });
   drawVoicePoint(x, y, cutoff);
 });
 
@@ -120,6 +175,17 @@ canvas.addEventListener("pointermove", (e) => {
   const cutoff = filterFreqForY(y, canvas.height);
   voice.osc.frequency.setTargetAtTime(freq, audioCtx.currentTime, 0.03);
   voice.filter.frequency.setTargetAtTime(cutoff, audioCtx.currentTime, 0.03);
+
+  const last = pointerLast.get(e.pointerId);
+  if (last) {
+    const dt = e.timeStamp - last.t;
+    const dist = Math.hypot(x - last.x, y - last.y);
+    const speed = dt > 0 ? dist / dt : 0;
+    const depth = vibratoCentsForSpeed(speed);
+    voice.lfoGain.gain.setTargetAtTime(depth, audioCtx.currentTime, 0.05);
+  }
+  pointerLast.set(e.pointerId, { x, y, t: e.timeStamp });
+
   drawVoicePoint(x, y, cutoff);
 });
 
@@ -128,6 +194,7 @@ function releasePointer(e: PointerEvent): void {
   if (!voice) return;
   stopVoice(voice);
   pointerVoices.delete(e.pointerId);
+  pointerLast.delete(e.pointerId);
 }
 
 canvas.addEventListener("pointerup", releasePointer);
@@ -158,3 +225,4 @@ window.addEventListener("keyup", (e) => {
 
 window.addEventListener("resize", resizeCanvas);
 resizeCanvas();
+if (!reducedMotion) requestAnimationFrame(idleLoop);

@@ -47,3 +47,16 @@ const KEY_CODES = [
 export const KEY_NOTES: Readonly<Record<string, number>> = Object.fromEntries(
   KEY_CODES.map((code, i) => [code, i]),
 );
+
+// A slow, careful glide across the pad should sound different from a fast
+// flick across the same notes — not just faster, but *more textured* — so
+// speed of pointer travel drives vibrato depth (in cents) on top of the
+// pitch/brightness mapping above.
+export const VIBRATO_RATE_HZ = 5.5;
+const MAX_VIBRATO_CENTS = 40;
+const VIBRATO_FULL_SPEED_PX_PER_MS = 1.5;
+
+export function vibratoCentsForSpeed(speedPxPerMs: number): number {
+  const t = Math.min(Math.max(speedPxPerMs, 0) / VIBRATO_FULL_SPEED_PX_PER_MS, 1);
+  return t * MAX_VIBRATO_CENTS;
+}

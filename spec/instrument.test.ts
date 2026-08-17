@@ -9,6 +9,7 @@ import {
   MAX_CUTOFF,
   frequencyForX,
   filterFreqForY,
+  vibratoCentsForSpeed,
 } from "../synth";
 
 // Contract tests for this week's brief: a client-side Web Audio instrument,
@@ -61,6 +62,25 @@ describe("keyboard play", () => {
     for (const index of Object.values(KEY_NOTES)) {
       expect(SCALE[index]).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("vibrato mapping (pointer speed)", () => {
+  it("stays silent — no vibrato — for a still or barely-moving pointer", () => {
+    expect(vibratoCentsForSpeed(0)).toBe(0);
+  });
+
+  it("grows with speed, so a fast flick trembles more than a slow glide", () => {
+    const slow = vibratoCentsForSpeed(0.2);
+    const fast = vibratoCentsForSpeed(0.8);
+    expect(fast).toBeGreaterThan(slow);
+    expect(slow).toBeGreaterThan(0);
+  });
+
+  it("clamps to a maximum rather than growing without bound", () => {
+    const capped = vibratoCentsForSpeed(1.5);
+    expect(vibratoCentsForSpeed(100)).toBe(capped);
+    expect(capped).toBeGreaterThan(0);
   });
 });
 
