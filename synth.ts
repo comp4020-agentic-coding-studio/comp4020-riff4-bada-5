@@ -22,12 +22,19 @@ export function frequencyForX(x: number, width: number): number {
   return SCALE[index];
 }
 
+// Brightness as an abstract 0 (dark) to 1 (bright) fraction of the filter's
+// range — shared by the pointer's continuous y-axis and the keyboard's
+// discrete arrow-key control below, so both land on the same timbre scale.
+export function filterFreqForT(t: number): number {
+  const clamped = Math.min(Math.max(t, 0), 1);
+  return MIN_CUTOFF + clamped * (MAX_CUTOFF - MIN_CUTOFF);
+}
+
 // y-axis: brightness, a continuous lowpass cutoff (top bright, bottom dark).
 export function filterFreqForY(y: number, height: number): number {
   if (height <= 0) return MAX_CUTOFF;
   const clamped = Math.min(Math.max(y, 0), height);
-  const t = 1 - clamped / height;
-  return MIN_CUTOFF + t * (MAX_CUTOFF - MIN_CUTOFF);
+  return filterFreqForT(1 - clamped / height);
 }
 
 // Home-row keys play the same scale as the pad, one voice per held key, so
@@ -47,6 +54,12 @@ const KEY_CODES = [
 export const KEY_NOTES: Readonly<Record<string, number>> = Object.fromEntries(
   KEY_CODES.map((code, i) => [code, i]),
 );
+
+// Without a pointer's y-axis, keyboard play would only ever vary pitch.
+// Up/Down arrows give it the same brightness dimension, live-adjustable even
+// while notes are held, so a keyboard-only chord can still be swept from
+// dark to bright rather than sounding flat.
+export const KEYBOARD_BRIGHTNESS_STEP = 0.08;
 
 // A slow, careful glide across the pad should sound different from a fast
 // flick across the same notes — not just faster, but *more textured* — so

@@ -4,8 +4,10 @@ import {
   MIN_CUTOFF,
   MAX_CUTOFF,
   VIBRATO_RATE_HZ,
+  KEYBOARD_BRIGHTNESS_STEP,
   frequencyForX,
   filterFreqForY,
+  filterFreqForT,
   vibratoCentsForSpeed,
 } from "./synth";
 
@@ -201,18 +203,47 @@ canvas.addEventListener("pointerup", releasePointer);
 canvas.addEventListener("pointercancel", releasePointer);
 
 // Keyboard — home row plays the same scale as the pad, one voice per held
-// key, so keys held together become a chord.
+// key, so keys held together become a chord. Without a pointer's y-axis,
+// that would leave keyboard play with only pitch to shape — so Up/Down
+// arrows drive the same brightness dimension, live, even across keys
+// already held down.
 const keyVoices = new Map<string, Voice>();
+const keyPositions = new Map<string, number>();
+let keyboardBrightness = 0.5;
+
+function redrawKeyboardVoices(): void {
+  const y = (1 - keyboardBrightness) * canvas.height;
+  for (const x of keyPositions.values()) {
+    drawVoicePoint(x, y, filterFreqForT(keyboardBrightness));
+  }
+}
 
 window.addEventListener("keydown", (e) => {
+  if (e.code === "ArrowUp" || e.code === "ArrowDown") {
+    e.preventDefault();
+    const delta = e.code === "ArrowUp" ? 1 : -1;
+    keyboardBrightness = Math.min(
+      Math.max(keyboardBrightness + delta * KEYBOARD_BRIGHTNESS_STEP, 0),
+      1,
+    );
+    const cutoff = filterFreqForT(keyboardBrightness);
+    if (audioCtx) {
+      for (const voice of keyVoices.values()) {
+        voice.filter.frequency.setTargetAtTime(cutoff, audioCtx.currentTime, 0.03);
+      }
+    }
+    redrawKeyboardVoices();
+    return;
+  }
   const index = KEY_NOTES[e.code];
   if (index === undefined || e.repeat || keyVoices.has(e.code)) return;
   announcePlaying();
   const freq = SCALE[index];
   const x = (index / (SCALE.length - 1)) * canvas.width;
-  const y = canvas.height / 2;
-  const cutoff = filterFreqForY(y, canvas.height);
+  const y = (1 - keyboardBrightness) * canvas.height;
+  const cutoff = filterFreqForT(keyboardBrightness);
   keyVoices.set(e.code, startVoice(freq, cutoff));
+  keyPositions.set(e.code, x);
   drawVoicePoint(x, y, cutoff);
 });
 
@@ -221,6 +252,7 @@ window.addEventListener("keyup", (e) => {
   if (!voice) return;
   stopVoice(voice);
   keyVoices.delete(e.code);
+  keyPositions.delete(e.code);
 });
 
 window.addEventListener("resize", resizeCanvas);

@@ -7,8 +7,10 @@ import {
   KEY_NOTES,
   MIN_CUTOFF,
   MAX_CUTOFF,
+  KEYBOARD_BRIGHTNESS_STEP,
   frequencyForX,
   filterFreqForY,
+  filterFreqForT,
   vibratoCentsForSpeed,
 } from "../synth";
 
@@ -62,6 +64,22 @@ describe("keyboard play", () => {
     for (const index of Object.values(KEY_NOTES)) {
       expect(SCALE[index]).toBeGreaterThan(0);
     }
+  });
+
+  it("has a nonzero brightness step, so arrow keys audibly change the tone", () => {
+    expect(KEYBOARD_BRIGHTNESS_STEP).toBeGreaterThan(0);
+  });
+});
+
+describe("brightness mapping (keyboard arrow keys)", () => {
+  it("agrees with the pointer's y-axis mapping at the same fraction", () => {
+    expect(filterFreqForT(1)).toBe(filterFreqForY(0, 300));
+    expect(filterFreqForT(0)).toBe(filterFreqForY(300, 300));
+  });
+
+  it("clamps to the filter range rather than growing without bound", () => {
+    expect(filterFreqForT(-1)).toBe(MIN_CUTOFF);
+    expect(filterFreqForT(2)).toBe(MAX_CUTOFF);
   });
 });
 
