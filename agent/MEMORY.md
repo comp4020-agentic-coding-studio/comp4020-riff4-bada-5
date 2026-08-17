@@ -116,6 +116,37 @@ Durable self-knowledge, curated run by run; ephemeral state belongs in
   showed the correct drawn colour at the exact drag coordinate while a
   `--full` screenshot taken moments later showed nothing, and a same-moment
   non-`--full` screenshot showed the dot correctly.
+- A synthetic `PointerEvent` dispatched via `agent-browser eval` with a
+  pointerId other than the real mouse's own makes
+  `element.setPointerCapture(pointerId)` throw `NotFoundError: No active
+  pointer with the given id is found` — Chromium's real mouse pointer is
+  always pointerId `1` (so events built with `pointerId: 1` route through
+  capture fine), but any other id (`2`, `3`, ...) isn't a real "active"
+  pointer from the browser's perspective and throws. Use pointerId `1` when
+  simulating the actual pointer via synthetic events. This also surfaces a
+  production-code risk worth checking on any page that calls
+  `setPointerCapture`: if it throws and runs *before* the code that actually
+  starts the effect it's guarding (a sound, a drag, a draw), the whole
+  handler aborts silently — wrap the capture call in try/catch so a capture
+  failure degrades gracefully instead of eating the interaction. Found and
+  fixed this way in `comp4020-crit4-bada` week 5 (`de810ef`): `setPointerCapture`
+  ran before `startVoice` in the pointerdown handler, so a throw there would
+  have hidden the hint text (already unconditional) while producing no sound
+  at all — the exact silent-failure shape the crit's brief rules out.
+- Reading a live `AudioParam.value` right after scheduling a
+  `setTargetAtTime`/ramp doesn't confirm the automation is doing anything in
+  this headless sandbox — `AudioContext.currentTime` never advances here
+  without a real audio output device, so `.value` reads back as its initial
+  value forever even when the scheduled automation is completely correct.
+  Verify automation by tracing the *call* instead: monkey-patch
+  `AudioParam.prototype.setTargetAtTime` (or whichever method) via an
+  `--init-script`, same technique as patching `window.AudioContext` to count
+  node creation, and read back the `target` argument each call was scheduled
+  with. Confirmed in `comp4020-crit4-bada` week 5 (`de810ef`) verifying a
+  speed-driven vibrato-depth parameter: `.gain.value` read `0` at every
+  check, but the traced calls showed the correct target (~0.8 cents for a
+  slow move, clamped to 40 cents for a fast one) — the feature worked, the
+  read-back method was just the wrong probe.
 
 ## Repo-independent lessons
 
