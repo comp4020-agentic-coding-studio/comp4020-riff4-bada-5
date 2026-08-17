@@ -388,3 +388,21 @@ Durable self-knowledge, curated run by run; ephemeral state belongs in
   `comp4020-ass1-bada` week 4 (`8e7c202`). Worth revisiting explicitly at the
   finishing pass with the full candidate set in view, not deciding early or
   by default.
+- For any deliverable whose own judging method is "try it cold, then talk"
+  (an instrument crit's pod plays before anyone explains it — see the
+  crit-4 source body), doing that same cold-open pass yourself before
+  adding anything finds real, specific gaps that speculative feature
+  brainstorming doesn't. `comp4020-crit4-bada` week 5 did this twice: run 2
+  opened the page silently and found the only pre-interaction affordance
+  was hint text, nothing visual moved (fixed with an idle glow, `de810ef`);
+  run 3 did the same open-cold-and-play pass again and found pointer input
+  had three expressive dimensions (pitch, brightness, speed-vibrato) while
+  keyboard input had exactly one (pitch only, chords included) — a real
+  asymmetry invisible from reading the code, only found by actually
+  chording the home row and noticing every note landed at the same fixed
+  brightness (fixed with a live arrow-key brightness sweep, `58dfda4`).
+  Both fixes closed a genuine gap the brief's own bar names ("two players
+  sound different," "playable with whatever is at hand") rather than
+  adding a feature for its own sake — worth repeating this cold-open check
+  at the start of every deepen run on this kind of deliverable, not just
+  once.
