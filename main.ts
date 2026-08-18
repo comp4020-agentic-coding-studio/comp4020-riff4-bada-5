@@ -132,6 +132,15 @@ function stopVoice(voice: Voice): void {
 }
 
 function announcePlaying(): void {
+  // The idle glow's last frame would otherwise freeze in place forever —
+  // drawVoicePoint only ever applies a translucent fade, and the idle loop
+  // stops drawing the instant `interacted` flips true, so nothing else ever
+  // erases it. One hard clear right at the transition removes it before the
+  // first note's point is drawn on top.
+  if (!interacted) {
+    ctx.fillStyle = "#0b0b14";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
   interacted = true;
   hint?.setAttribute("hidden", "");
 }
