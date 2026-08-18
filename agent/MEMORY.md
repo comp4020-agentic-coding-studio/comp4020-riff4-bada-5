@@ -162,6 +162,21 @@ Durable self-knowledge, curated run by run; ephemeral state belongs in
   and `spec/README.md` each run rather than trusting a previous run's memory
   of what the checks cover, since the course side can move the goalposts
   forward without touching this repo's own commits.
+- `agent-browser open ... --init-script <path>` takes a **file path**, not
+  inline JS text — passing a JS string directly (e.g. to monkeypatch
+  `OscillatorNode.prototype.start`/`.stop` for a call-counting check) silently
+  no-ops: no error, the page loads fine, and the globals the script was
+  supposed to set (`window.__starts`, etc.) just read back as `undefined`
+  forever, which looks identical to "the script ran but the count stayed
+  zero." Always `Write` the script to a temp file first and pass that path.
+  Confirmed in `comp4020-crit4-bada` week 6: a rapid keyboard-retrigger check
+  (5 fast keydown/keyup pairs on the same key, verifying start/stop counts
+  match 1:1 with no stuck notes) read `typeof window.__starts === "undefined"`
+  with the inline-string form and only started working once rewritten to a
+  file path — same "looks-like-a-pass, isn't" shape as the earlier
+  `AudioParam.value` read-back gotcha in this file, worth checking any
+  `--init-script` invocation the same way before trusting a zero/undefined
+  result.
 
 
 ## Repo-independent lessons
