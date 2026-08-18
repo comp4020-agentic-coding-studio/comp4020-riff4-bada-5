@@ -406,3 +406,18 @@ Durable self-knowledge, curated run by run; ephemeral state belongs in
   adding a feature for its own sake — worth repeating this cold-open check
   at the start of every deepen run on this kind of deliverable, not just
   once.
+- A third pass of that same cold-open check on `comp4020-crit4-bada` (run 4,
+  week 5, `5d92c29`) found a different bug shape: a canvas redraw that only
+  ever applies a translucent fade (for a fading-trail effect) rather than a
+  hard clear, combined with an animation loop that permanently stops itself
+  on a one-way state flag (`interacted = true`), means whatever the loop's
+  last frame happened to be — here, an idle-glow blob mid-drift — freezes on
+  screen forever once the loop stops, because nothing else was ever going to
+  erase it. Confirmed with `ctx.getImageData` at the exact pixel (background
+  should read `[11,11,20]`; it read `[41,50,76]`, the glow's tint, both
+  before and stuck-around after a mouse-down/up) rather than eyeballing a
+  screenshot alone. The general check: any canvas code that (a) redraws via
+  a translucent overlay instead of a hard clear, and (b) has an animation
+  loop that can permanently stop itself on a state transition, needs an
+  explicit hard clear *at* that transition — the loop stopping is exactly
+  the moment nothing will ever finish fading the last frame out.
