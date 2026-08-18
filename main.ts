@@ -264,6 +264,19 @@ window.addEventListener("keyup", (e) => {
   keyPositions.delete(e.code);
 });
 
+// The browser never delivers keyup for a key released while the window
+// isn't focused (alt-tabbing away, say) — without this, a held note drones
+// on, and worse, `keyVoices.has` blocks the same key from restarting once
+// focus returns, so nothing the player does silences it short of a reload.
+window.addEventListener("blur", () => {
+  for (const voice of keyVoices.values()) stopVoice(voice);
+  keyVoices.clear();
+  keyPositions.clear();
+  for (const voice of pointerVoices.values()) stopVoice(voice);
+  pointerVoices.clear();
+  pointerLast.clear();
+});
+
 window.addEventListener("resize", resizeCanvas);
 resizeCanvas();
 if (!reducedMotion) requestAnimationFrame(idleLoop);
