@@ -147,6 +147,22 @@ Durable self-knowledge, curated run by run; ephemeral state belongs in
   check, but the traced calls showed the correct target (~0.8 cents for a
   slow move, clamped to 40 cents for a fast one) — the feature worked, the
   read-back method was just the wrong probe.
+- Course automation can rewrite a repo's course-owned surface mid-deliverable
+  without the agent doing anything — `comp4020-crit4-bada` week 5 opened its
+  fifth run to find a commit already sitting at the tip
+  (`starter: bring the course-owned checks forward to the template tip`,
+  `7da64d2`, authored by "COMP4020 course automation") that had landed
+  between runs, dropping `oxlint`/`stylelint` out of `pnpm check`, rewriting
+  `check-evidence.ts` to work offline, and adding a meta-description +
+  og:image requirement to `spec/invariants.test.ts` plus a placeholder
+  `public/card.png`. Nothing in the routine caused this; it showed up as
+  already-committed history. Lesson: don't assume the check suite's shape
+  (what `pnpm check` runs, what `check:evidence` requires) is stable across
+  runs on a long-open deliverable — re-read `package.json`'s `check` script
+  and `spec/README.md` each run rather than trusting a previous run's memory
+  of what the checks cover, since the course side can move the goalposts
+  forward without touching this repo's own commits.
+
 
 ## Repo-independent lessons
 
@@ -421,3 +437,35 @@ Durable self-knowledge, curated run by run; ephemeral state belongs in
   loop that can permanently stop itself on a state transition, needs an
   explicit hard clear *at* that transition — the loop stopping is exactly
   the moment nothing will ever finish fading the last frame out.
+- A fourth cold-open pass on `comp4020-crit4-bada` (run 5, week 6, `fc9eb47`)
+  found a bug the previous three didn't, because it wasn't found by clicking
+  and watching but by asking "what happens if I leave mid-note": any
+  `window`-scoped `keydown`/`keyup` pair for held-note state is vulnerable to
+  the browser never delivering the matching `keyup` when focus leaves the
+  window while the key is still physically down (alt-tab is the common real
+  case) — the note drones on, and if the handler also guards re-trigger with
+  something like `heldNotes.has(e.code)`, the player can't even restart that
+  note once focus returns, because the map still thinks it's held. No jsdom
+  jump needed to find this: dispatch a real `keydown`, monkeypatch (via
+  `agent-browser open --init-script`) whatever the "stop" primitive is (here
+  `OscillatorNode.prototype.stop`) to count calls, dispatch a plain
+  `window.dispatchEvent(new Event("blur"))` with no keyup, and check the stop
+  counter didn't move. The fix is a `window` `blur` listener that force-stops
+  and clears every held-key (and, defensively, held-pointer) voice — cheap,
+  and it's the only way a player can ever silence a stuck note short of
+  reloading. Worth checking any keyboard-driven interactive page (not just
+  instruments — games, drag tools, anything with a "held" state keyed by
+  `keydown`/`keyup` pairs) for a `blur` handler before assuming keyup alone
+  is enough.
+- An `og:image` link-preview card is a case where the doctrine's blanket
+  "commit images as AVIF" rule has a real, checkable exception: AVIF support
+  for social/chat link-preview thumbnails (Slack, X, LinkedIn, iMessage) is
+  inconsistent, so an og:image card is safer shipped as PNG/JPEG even though
+  it's a committed image well under the 2560px/5MB guidance. Applied in
+  `comp4020-crit4-bada` week 6 (`9b4fe3a`) replacing a template placeholder
+  card.png with a real one composed (ImageMagick `convert`, DejaVu-Sans-Bold
+  for text) from an actual `agent-browser screenshot` of the instrument mid-
+  play, rather than reaching for a generic asset — the same "use the real
+  artefact, not a stand-in" instinct as the mid-context-fact tests elsewhere
+  in this file. Worth checking any future `og:image`/link-preview asset
+  against this exception before defaulting to AVIF.
