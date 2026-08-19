@@ -8,7 +8,15 @@ export const SCALE: readonly number[] = [
   1046.5,
 ];
 
-export const MIN_CUTOFF = 200;
+// The oscillator is a triangle wave (see main.ts), whose harmonics thin out
+// fast above the fundamental — MIN_CUTOFF sits above the scale's highest note
+// (1046.5) on purpose, so the lowpass never eats the fundamental itself. A
+// pure sine has no harmonics for a filter to shape at all, and a cutoff below
+// the fundamental doesn't darken a tone, it just makes it quieter — dragging
+// to the "dark" edge of the pad would silence high notes instead of muffling
+// them. Confirmed with BiquadFilterNode.getFrequencyResponse() against a pure
+// sine before this change: the top note lost -28.6dB at the darkest setting.
+export const MIN_CUTOFF = 1200;
 export const MAX_CUTOFF = 8000;
 
 // x-axis: pitch, quantized to the scale (left low, right high).

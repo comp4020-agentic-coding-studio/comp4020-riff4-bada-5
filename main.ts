@@ -100,7 +100,10 @@ function drawVoicePoint(x: number, y: number, cutoff: number): void {
 function startVoice(freq: number, cutoffHz: number): Voice {
   const { audio, bus } = getAudio();
   const osc = audio.createOscillator();
-  osc.type = "sine";
+  // Triangle, not sine — a sine has no harmonics for the lowpass filter
+  // below to shape, so the y-axis/arrow-key "brightness" control would have
+  // nothing to do above MIN_CUTOFF and would just be a volume knob below it.
+  osc.type = "triangle";
   osc.frequency.value = freq;
   const filter = audio.createBiquadFilter();
   filter.type = "lowpass";
