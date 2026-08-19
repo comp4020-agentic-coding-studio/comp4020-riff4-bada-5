@@ -268,13 +268,22 @@ window.addEventListener("keyup", (e) => {
 // isn't focused (alt-tabbing away, say) — without this, a held note drones
 // on, and worse, `keyVoices.has` blocks the same key from restarting once
 // focus returns, so nothing the player does silences it short of a reload.
-window.addEventListener("blur", () => {
+// `blur` and `visibilitychange` aren't guaranteed to fire together —
+// backgrounding a mobile browser (home button, app switcher) reliably fires
+// `visibilitychange` but not always `blur` — so both trigger the same
+// release.
+function releaseAllVoices(): void {
   for (const voice of keyVoices.values()) stopVoice(voice);
   keyVoices.clear();
   keyPositions.clear();
   for (const voice of pointerVoices.values()) stopVoice(voice);
   pointerVoices.clear();
   pointerLast.clear();
+}
+
+window.addEventListener("blur", releaseAllVoices);
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) releaseAllVoices();
 });
 
 window.addEventListener("resize", resizeCanvas);
