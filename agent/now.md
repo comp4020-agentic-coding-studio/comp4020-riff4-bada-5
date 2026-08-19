@@ -1,85 +1,75 @@
 # now
 
-## State as of this run (2026-08-19 ~21:10 AEST, 112.5 h to cutoff, crit 4 "An instrument")
+## State as of this run (2026-08-19 ~09:15 AEST, 125.5 h to cutoff, crit 4 "An instrument")
 
-Opened to find `agent/now.md` stale relative to the actual git history: it
-still listed "check `visibilitychange` vs. `blur` divergence" as an untried
-idea, but that had already been fixed two commits earlier in `2542cb7`
-("release held voices on visibilitychange too, not just blur"). The two
-`memory: tick` commits sitting on top of that fix (`f71e77a`, `50e58d8`)
-apparently didn't re-derive the hand-off from current state — see the new
-`MEMORY.md` entry. Lesson applied: don't trust a `now.md` hand-off's "next
-action" list without cross-checking it against `git log` first.
+Sixth run on `comp4020-crit4-bada`. Re-fetched `crits/04-instrument.json` —
+unchanged from the last two runs' notes. Re-checked `package.json`'s `check`
+script and `spec/README.md` per standing habit — unchanged since the course
+automation commit (`7da64d2`) two runs ago. `git fetch` + `git status` confirm
+`origin/main` matches local `HEAD` (`9af1b90`) exactly, nothing unpushed.
 
-`git fetch` + `git status` confirmed `origin/main` matched local `HEAD`
-exactly before starting, and `pnpm check` was clean (33/33 tests,
-typecheck/build fine) as a baseline.
+`pnpm check`: 33/33 tests, clean typecheck/build — no code changes this run,
+so didn't re-verify beyond confirming the baseline still holds.
 
-Found and fixed a real, previously-uncaught bug in `main.ts`/`synth.ts`: the
-oscillator was `type = "sine"`, but a pure sine has no harmonics for the
-"brightness" lowpass filter to remove. Below the filter's cutoff, a sine's
-*fundamental* is what gets attenuated — so the pad's dark edge silenced
-notes rather than muffling them, and `MIN_CUTOFF` (200) sat well below most
-of the scale's notes (261–1046 Hz). Confirmed empirically two ways before
-touching code:
+Did another honest cold stranger-test, per the standing pattern (three of the
+last five runs found real gaps this way). This round tried the specific edge
+cases the last hand-off flagged as untried, all against a live `pnpm dev` +
+`agent-browser`:
 
-- `BiquadFilterNode.getFrequencyResponse()` against the pad's actual filter
-  params showed the top note (1047 Hz) attenuated -28.6dB at the darkest
-  setting (cutoff 200), and the filter doing essentially nothing (0.0–0.3dB)
-  for any cutoff above ~440 — i.e. the brightness knob was dead across most
-  of its range and destructive at the rest.
-- An `OfflineAudioContext` end-to-end render of the top note confirmed it:
-  -26.8dB relative to unfiltered at the old sine+200Hz config.
+- **Canvas resize mid-drag**: mouse-down on the pad, drag, then
+  `agent-browser set viewport` to shrink the window mid-drag (768×512 →
+  436×350 canvas), then kept dragging including to coordinates that would
+  have been outside the old bounds. No console errors, no exceptions —
+  `pointerPosition()` re-reads `getBoundingClientRect()` on every event and
+  clamps against the *current* rect, so a resize mid-glide is already safe by
+  construction. Nothing to fix.
+- **Rapid keyboard retrigger**: monkeypatched `OscillatorNode.prototype.start`
+  /`.stop` via `agent-browser open --init-script <file-path>` (note: the flag
+  takes a file path, not inline JS — passing JS text directly to
+  `--init-script` silently no-ops, `window.__starts` stays `undefined` with
+  no error) to count real start/stop calls, then dispatched 5 rapid
+  keydown/keyup pairs for the same key in a tight loop. Counts matched
+  exactly (10 starts, 10 stops for 5 presses × 2 nodes/voice) — no stuck
+  notes, no double-stop exceptions. `keyVoices.has`/`.delete` timing is
+  already correct.
+- **Touch-action / focus order**: confirmed `touch-action: none` is already
+  set on `#pad` (prevents mobile double-tap-zoom/scroll from fighting rapid
+  taps), and that Tab order reaches `CANVAS#pad` cleanly (Home link → canvas)
+  with no `outline` suppression in `styles.css`, so a keyboard-only or
+  screen-reader user tabbing through lands on a properly-labelled, visibly-
+  focusable play surface.
 
-Fixed in `c930e0a` by switching the oscillator to `type = "triangle"` (real
-harmonic content for the filter to act on) and raising `MIN_CUTOFF` to 1200
-— safely above the scale's highest note (1046.5) so the fundamental itself
-is never attenuated (re-verified: same render came back +1.5dB, i.e. full
-volume, after the fix). `pnpm check` stayed green (33/33, no test pinned the
-old constant values). Verified live in `agent-browser`: dragged across the
-pad, hint text hides correctly on first contact, no console errors. Pushed
-as `c930e0a`.
-
-**Known residual limitation, not fixed this run**: the brightness sweep is
-much weaker for low notes than high ones. At `MIN_CUTOFF` (1200), a low note
-(262 Hz) already has most of its near harmonics passing (1200 ≫ 262), so
-sweeping to `MAX_CUTOFF` (8000) barely changes its timbre (~-0.3dB measured
-on harmonic-only content) — the fix mainly helps notes in the upper half of
-the scale, which is also where the old bug was worst. This is "less
-expressive for some notes," not "broken" (nothing goes silent now), so it
-wasn't chased further this run given the time already spent, but a future
-run could consider filter-keyboard-tracking (scale the cutoff relative to
-each note's own frequency, not one absolute Hz range for the whole scale) if
-this is worth the added complexity.
+No new bug found this round — a legitimate outcome, not a wasted check (see
+`MEMORY.md`). No commits this run; working tree was already clean and stays
+clean.
 
 ## Single most important next action
 
-Still ~112 h out — not the finishing run.
+Still ~125 h out — plenty of runway, not yet the finishing run.
 
-1. Consider filter-keyboard-tracking for the brightness/cutoff mapping (see
-   residual limitation above) if a future run wants the brightness control
-   to feel equally expressive across the whole scale, not just the top half.
-2. The stale hand-off's other still-untried idea is still untried: whether
-   holding a key down for a very long time causes any drift/CPU issue in the
-   LFO graph. Worth a real check (e.g. sample `AudioContext.currentTime` vs.
-   wall clock, or watch for accumulating scheduled-event backlog) before
-   assuming it's fine.
-3. Do another cold-stranger pass focused on the *musical* experience rather
-   than mechanics — is the pentatonic scale genuinely forgiving to an
-   untrained visitor, does the vibrato ever read as glitchy rather than
-   expressive at extreme speeds — these are judgement calls, possibly better
-   raised at the crit than solved unilaterally, but worth trying to form an
-   opinion on before then.
-4. Real multi-touch verification remains untestable from this CLI (carried
+1. The obvious, cheaply-testable edge cases from the last hand-off are now
+   exhausted (resize mid-drag, rapid retrigger, touch-action, focus order —
+   all clean). Next deepen run should either find a genuinely new angle for
+   the cold-stranger test (ideas not yet tried: `AudioContext` behaviour on
+   tab hide/`visibilitychange` vs. the existing `blur` handler — do they ever
+   diverge on a real device; whether holding a key down for a very long time
+   causes any drift/CPU issue in the LFO graph) or accept that `main.ts` is
+   in good shape and shift attention to something else the brief cares about
+   that hasn't been checked yet from a stranger's perspective — e.g. is the
+   pentatonic scale genuinely forgiving to a musically untrained visitor, or
+   does the vibrato/brightness mapping ever produce something that reads as
+   "broken" rather than "expressive" (a judgement call, not a test — may be
+   better raised as a question for the crit itself than solved unilaterally).
+2. Real multi-touch verification remains untestable from this CLI (carried
    over unchanged again) — `pointerVoices` keys by `pointerId` so two
    simultaneous contacts should chord correctly by construction, but this
    needs an actual touchscreen or the dashboard's `input_touch` WebSocket
    channel, neither available here.
-5. Don't touch `PROCESS.md`/`reflections/crit-4.md` yet — finishing-run
+3. Don't touch `PROCESS.md`/`reflections/crit-4.md` yet — finishing-run
    steps only, per doctrine. `PROCESS.md` is still the unedited template.
-6. Re-check `package.json`'s `check` script and `spec/README.md` each run
+4. Re-check `package.json`'s `check` script and `spec/README.md` each run
    before assuming what the checks cover — course automation can rewrite
    the course-owned surface between runs without this repo's own commits
-   changing (see `MEMORY.md`). Unchanged again this run.
-7. Don't touch any other sibling repo — only this deliverable's window is
+   changing (see `MEMORY.md`).
+5. Don't touch any other sibling repo — only this deliverable's window is
    open right now.
