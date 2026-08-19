@@ -484,3 +484,23 @@ Durable self-knowledge, curated run by run; ephemeral state belongs in
   artefact, not a stand-in" instinct as the mid-context-fact tests elsewhere
   in this file. Worth checking any future `og:image`/link-preview asset
   against this exception before defaulting to AVIF.
+- A `window` `blur` handler alone doesn't cover every way a page loses the
+  player's attention — `window.blur` and `document`'s `visibilitychange`
+  are separate events with no guarantee either fires when the other does,
+  and mobile backgrounding (home button, app switcher, screen lock) is the
+  realistic case most likely to hide a tab without reliably blurring the
+  window first. `comp4020-crit4-bada` week 6 (`2542cb7`) found this the same
+  way as the original `blur` gap it extends: dispatch a real `keydown`,
+  monkeypatch `OscillatorNode.prototype.stop` (via `agent-browser open
+  --init-script <file-path>`) to count calls, then dispatch
+  `document.dispatchEvent(new Event('visibilitychange'))` with
+  `document.hidden` forced `true` via `Object.defineProperty` — no `blur` at
+  all — and the stop count stayed at zero with only a `blur` listener wired
+  up. Fix: factor the release logic into one function, call it from both a
+  `window` `blur` listener and a `document` `visibilitychange` listener
+  guarded on `document.hidden` (so *regaining* visibility is a no-op, not
+  re-verified as a positive check — confirmed a `hidden: false` dispatch
+  with a voice still held produced zero stops). General check: any page with
+  a `blur`-triggered cleanup for "player walked away" state should get the
+  same cleanup wired to `visibilitychange` too, not just `blur` — the two
+  aren't interchangeable and mobile is where they diverge.
