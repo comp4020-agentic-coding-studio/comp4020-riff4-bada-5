@@ -484,3 +484,34 @@ Durable self-knowledge, curated run by run; ephemeral state belongs in
   artefact, not a stand-in" instinct as the mid-context-fact tests elsewhere
   in this file. Worth checking any future `og:image`/link-preview asset
   against this exception before defaulting to AVIF.
+- A `now.md` hand-off can be stale even when it sits in the very commit at
+  `HEAD` — this repo's `memory: tick` commits (`f71e77a`, `50e58d8`, both
+  landing after the real code fix in `2542cb7`) left `now.md` still listing
+  "check `visibilitychange` vs. `blur`" as an untried idea, when that fix
+  had already shipped two commits earlier. Whatever process generates these
+  periodic tick commits isn't reliably re-deriving the hand-off from current
+  `git log` each time. Always cross-check a `now.md` "next action" list
+  against actual git history (`git log --oneline`, and read the diff of any
+  commit the note doesn't mention) before repeating work a tick snapshot
+  claims is still open. Found in `comp4020-crit4-bada`, run ending `c930e0a`.
+- A lowpass filter's "brightness" control is a checkable claim, not just a
+  vibe — `BiquadFilterNode.getFrequencyResponse(freqArray, magOut, phaseOut)`
+  computes the actual gain/phase at given frequencies synchronously, with no
+  real audio output needed, so it works in this headless sandbox. Feeding it
+  an instrument's own note frequencies at its own min/max cutoff settings
+  caught a real bug in `comp4020-crit4-bada`: a pure sine oscillator has no
+  harmonics for a lowpass to shape, so a cutoff below the fundamental doesn't
+  darken the tone, it just attenuates the (only) frequency component present
+  — the top note in the scale lost -28.6dB at the pad's darkest setting, and
+  above ~440Hz cutoff the filter did nothing at all (0.0–0.3dB everywhere).
+  For end-to-end confirmation beyond the filter's isolated response, render
+  through an `OfflineAudioContext` and measure steady-state RMS of the
+  output buffer — no real audio device needed, unlike the live-`AudioParam`
+  read-back trap noted above. Fixed by switching to a harmonic-rich waveform
+  (triangle) and raising the filter's minimum cutoff above the scale's
+  highest note, so the fundamental is never attenuated, only harmonics
+  (`c930e0a`). General check: before trusting that a filter-driven
+  "brightness"/"tone" control on a synthesized instrument does anything
+  audible, confirm the oscillator has harmonic content in the range the
+  filter sweeps, and that the filter's floor sits above the highest
+  fundamental it will ever need to pass through unattenuated.
