@@ -5,11 +5,11 @@ import { describe, expect, it } from "vitest";
 import {
   SCALE,
   KEY_NOTES,
-  MIN_CUTOFF,
-  MAX_CUTOFF,
+  DARK_RATIO,
+  BRIGHT_RATIO,
   KEYBOARD_BRIGHTNESS_STEP,
   frequencyForX,
-  filterFreqForY,
+  brightnessForY,
   filterFreqForT,
   vibratoCentsForSpeed,
 } from "../synth";
@@ -42,16 +42,40 @@ describe("pitch mapping (pointer + touch x-axis)", () => {
 });
 
 describe("brightness mapping (pointer + touch y-axis)", () => {
-  it("stays within the instrument's filter range", () => {
-    for (let y = 0; y <= 300; y += 5) {
-      const cutoff = filterFreqForY(y, 300);
-      expect(cutoff).toBeGreaterThanOrEqual(MIN_CUTOFF);
-      expect(cutoff).toBeLessThanOrEqual(MAX_CUTOFF);
+  it("stays within the instrument's filter range, relative to the note's own frequency", () => {
+    for (const freq of SCALE) {
+      for (let y = 0; y <= 300; y += 5) {
+        const cutoff = filterFreqForT(freq, brightnessForY(y, 300));
+        expect(cutoff).toBeGreaterThanOrEqual(freq * DARK_RATIO);
+        expect(cutoff).toBeLessThanOrEqual(freq * BRIGHT_RATIO);
+      }
     }
   });
 
   it("is brighter at the top of the pad than the bottom", () => {
-    expect(filterFreqForY(0, 300)).toBeGreaterThan(filterFreqForY(300, 300));
+    expect(brightnessForY(0, 300)).toBeGreaterThan(brightnessForY(300, 300));
+  });
+
+  it("keytracks: the same brightness fraction sweeps a proportionally wider Hz range for a higher note", () => {
+    // A fixed Hz range mostly sits inside a low note's own harmonic spacing
+    // and barely reaches a high note's, so the sweep was nearly inaudible
+    // everywhere — keytracking (cutoff = freq * ratio) keeps the same
+    // *proportional* harmonic content swept regardless of pitch.
+    const low = filterFreqForT(SCALE[0], 1) - filterFreqForT(SCALE[0], 0);
+    const high =
+      filterFreqForT(SCALE[SCALE.length - 1], 1) -
+      filterFreqForT(SCALE[SCALE.length - 1], 0);
+    expect(high).toBeGreaterThan(low);
+    const lowRatio = filterFreqForT(SCALE[0], 0.5) / SCALE[0];
+    const highRatio =
+      filterFreqForT(SCALE[SCALE.length - 1], 0.5) / SCALE[SCALE.length - 1];
+    expect(lowRatio).toBeCloseTo(highRatio, 10);
+  });
+
+  it("never darkens below the note's own fundamental", () => {
+    for (const freq of SCALE) {
+      expect(filterFreqForT(freq, 0)).toBeGreaterThan(freq);
+    }
   });
 });
 
@@ -72,14 +96,20 @@ describe("keyboard play", () => {
 });
 
 describe("brightness mapping (keyboard arrow keys)", () => {
-  it("agrees with the pointer's y-axis mapping at the same fraction", () => {
-    expect(filterFreqForT(1)).toBe(filterFreqForY(0, 300));
-    expect(filterFreqForT(0)).toBe(filterFreqForY(300, 300));
+  it("agrees with the pointer's y-axis mapping at the same fraction, for the same note", () => {
+    const freq = SCALE[0];
+    expect(filterFreqForT(freq, 1)).toBe(
+      filterFreqForT(freq, brightnessForY(0, 300)),
+    );
+    expect(filterFreqForT(freq, 0)).toBe(
+      filterFreqForT(freq, brightnessForY(300, 300)),
+    );
   });
 
   it("clamps to the filter range rather than growing without bound", () => {
-    expect(filterFreqForT(-1)).toBe(MIN_CUTOFF);
-    expect(filterFreqForT(2)).toBe(MAX_CUTOFF);
+    const freq = SCALE[0];
+    expect(filterFreqForT(freq, -1)).toBe(freq * DARK_RATIO);
+    expect(filterFreqForT(freq, 2)).toBe(freq * BRIGHT_RATIO);
   });
 });
 

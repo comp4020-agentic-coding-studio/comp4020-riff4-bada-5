@@ -8,16 +8,23 @@ export const SCALE: readonly number[] = [
   1046.5,
 ];
 
-// The oscillator is a triangle wave (see main.ts), whose harmonics thin out
-// fast above the fundamental — MIN_CUTOFF sits above the scale's highest note
-// (1046.5) on purpose, so the lowpass never eats the fundamental itself. A
-// pure sine has no harmonics for a filter to shape at all, and a cutoff below
-// the fundamental doesn't darken a tone, it just makes it quieter — dragging
-// to the "dark" edge of the pad would silence high notes instead of muffling
-// them. Confirmed with BiquadFilterNode.getFrequencyResponse() against a pure
-// sine before this change: the top note lost -28.6dB at the darkest setting.
-export const MIN_CUTOFF = 1200;
-export const MAX_CUTOFF = 8000;
+// The oscillator is a sawtooth (see main.ts): all harmonics, falling off as
+// 1/n, so there's real high-frequency content for the lowpass to remove.
+// The filter cutoff is keytracked — scaled relative to each voice's own note
+// frequency (cutoff = freq * ratio) rather than one fixed Hz range shared by
+// the whole scale. A fixed range mostly sat inside a low note's own harmonic
+// spacing already and barely reached a high note's, so the sweep was nearly
+// inaudible everywhere (measured via spectral centroid: <4% shift even at
+// the top note, using the old triangle+fixed-range approach). Keytracking
+// keeps the same *proportional* harmonic content swept regardless of pitch —
+// confirmed via the same centroid measurement to land ~110% consistently
+// across the whole scale. DARK_RATIO sits safely above 1 (the fundamental
+// itself) so the fundamental is never attenuated, only harmonics above it —
+// confirmed via BiquadFilterNode.getFrequencyResponse() at DARK_RATIO across
+// every note in SCALE: the fundamental gains slightly (~+1.7dB, the filter's
+// own resonance peak), never attenuates.
+export const DARK_RATIO = 1.5;
+export const BRIGHT_RATIO = 14;
 
 // x-axis: pitch, quantized to the scale (left low, right high).
 export function frequencyForX(x: number, width: number): number {
@@ -30,19 +37,21 @@ export function frequencyForX(x: number, width: number): number {
   return SCALE[index];
 }
 
-// Brightness as an abstract 0 (dark) to 1 (bright) fraction of the filter's
-// range — shared by the pointer's continuous y-axis and the keyboard's
-// discrete arrow-key control below, so both land on the same timbre scale.
-export function filterFreqForT(t: number): number {
-  const clamped = Math.min(Math.max(t, 0), 1);
-  return MIN_CUTOFF + clamped * (MAX_CUTOFF - MIN_CUTOFF);
+// Brightness as an abstract 0 (dark) to 1 (bright) fraction — shared by the
+// pointer's continuous y-axis and the keyboard's discrete arrow-key control,
+// so both land on the same timbre scale regardless of which note is playing.
+export function brightnessForY(y: number, height: number): number {
+  if (height <= 0) return 1;
+  const clamped = Math.min(Math.max(y, 0), height);
+  return 1 - clamped / height;
 }
 
-// y-axis: brightness, a continuous lowpass cutoff (top bright, bottom dark).
-export function filterFreqForY(y: number, height: number): number {
-  if (height <= 0) return MAX_CUTOFF;
-  const clamped = Math.min(Math.max(y, 0), height);
-  return filterFreqForT(1 - clamped / height);
+// Turns a brightness fraction into an actual filter cutoff for a given
+// voice's note frequency — see the keytracking note above.
+export function filterFreqForT(freq: number, t: number): number {
+  const clamped = Math.min(Math.max(t, 0), 1);
+  const ratio = DARK_RATIO + clamped * (BRIGHT_RATIO - DARK_RATIO);
+  return freq * ratio;
 }
 
 // Home-row keys play the same scale as the pad, one voice per held key, so

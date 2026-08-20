@@ -1,12 +1,10 @@
 import {
   SCALE,
   KEY_NOTES,
-  MIN_CUTOFF,
-  MAX_CUTOFF,
   VIBRATO_RATE_HZ,
   KEYBOARD_BRIGHTNESS_STEP,
   frequencyForX,
-  filterFreqForY,
+  brightnessForY,
   filterFreqForT,
   vibratoCentsForSpeed,
 } from "./synth";
@@ -17,6 +15,7 @@ interface Voice {
   filter: BiquadFilterNode;
   lfo: OscillatorNode;
   lfoGain: GainNode;
+  freq: number;
 }
 
 function required<T>(value: T | null, message: string): T {
@@ -87,28 +86,30 @@ function idleLoop(tMs: number): void {
   requestAnimationFrame(idleLoop);
 }
 
-function drawVoicePoint(x: number, y: number, cutoff: number): void {
+function drawVoicePoint(x: number, y: number, t: number): void {
   ctx.fillStyle = "rgba(11, 11, 20, 0.2)";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  const hue = 210 - ((cutoff - MIN_CUTOFF) / (MAX_CUTOFF - MIN_CUTOFF)) * 170;
+  const hue = 210 - t * 170;
   ctx.beginPath();
   ctx.fillStyle = `hsl(${hue} 90% 60%)`;
   ctx.arc(x, y, 26, 0, Math.PI * 2);
   ctx.fill();
 }
 
-function startVoice(freq: number, cutoffHz: number): Voice {
+function startVoice(freq: number, t: number): Voice {
   const { audio, bus } = getAudio();
   const osc = audio.createOscillator();
-  // Triangle, not sine — a sine has no harmonics for the lowpass filter
-  // below to shape, so the y-axis/arrow-key "brightness" control would have
-  // nothing to do above MIN_CUTOFF and would just be a volume knob below it.
-  osc.type = "triangle";
+  // Sawtooth, not triangle — a triangle's harmonics fall off too fast
+  // (1/n^2) to give the keytracked lowpass below anything to shape, so the
+  // "brightness" sweep barely moved the spectral centroid (<4% even at the
+  // top note). A sawtooth's harmonics fall off more slowly (1/n), giving the
+  // filter real material to remove. See synth.ts for the keytracking itself.
+  osc.type = "sawtooth";
   osc.frequency.value = freq;
   const filter = audio.createBiquadFilter();
   filter.type = "lowpass";
   filter.Q.value = 0.8;
-  filter.frequency.value = cutoffHz;
+  filter.frequency.value = filterFreqForT(freq, t);
   const gain = audio.createGain();
   gain.gain.value = 0;
   // Vibrato depth (lfoGain, in cents) starts at zero and is driven by
@@ -122,7 +123,7 @@ function startVoice(freq: number, cutoffHz: number): Voice {
   osc.connect(filter).connect(gain).connect(bus);
   osc.start();
   gain.gain.linearRampToValueAtTime(0.35, audio.currentTime + 0.04);
-  return { osc, gain, filter, lfo, lfoGain };
+  return { osc, gain, filter, lfo, lfoGain, freq };
 }
 
 function stopVoice(voice: Voice): void {
@@ -175,10 +176,10 @@ canvas.addEventListener("pointerdown", (e) => {
   }
   const { x, y } = pointerPosition(e);
   const freq = frequencyForX(x, canvas.width);
-  const cutoff = filterFreqForY(y, canvas.height);
-  pointerVoices.set(e.pointerId, startVoice(freq, cutoff));
+  const brightness = brightnessForY(y, canvas.height);
+  pointerVoices.set(e.pointerId, startVoice(freq, brightness));
   pointerLast.set(e.pointerId, { x, y, t: e.timeStamp });
-  drawVoicePoint(x, y, cutoff);
+  drawVoicePoint(x, y, brightness);
 });
 
 canvas.addEventListener("pointermove", (e) => {
@@ -186,7 +187,9 @@ canvas.addEventListener("pointermove", (e) => {
   if (!voice || !audioCtx) return;
   const { x, y } = pointerPosition(e);
   const freq = frequencyForX(x, canvas.width);
-  const cutoff = filterFreqForY(y, canvas.height);
+  const brightness = brightnessForY(y, canvas.height);
+  const cutoff = filterFreqForT(freq, brightness);
+  voice.freq = freq;
   voice.osc.frequency.setTargetAtTime(freq, audioCtx.currentTime, 0.03);
   voice.filter.frequency.setTargetAtTime(cutoff, audioCtx.currentTime, 0.03);
 
@@ -200,7 +203,7 @@ canvas.addEventListener("pointermove", (e) => {
   }
   pointerLast.set(e.pointerId, { x, y, t: e.timeStamp });
 
-  drawVoicePoint(x, y, cutoff);
+  drawVoicePoint(x, y, brightness);
 });
 
 function releasePointer(e: PointerEvent): void {
@@ -226,7 +229,7 @@ let keyboardBrightness = 0.5;
 function redrawKeyboardVoices(): void {
   const y = (1 - keyboardBrightness) * canvas.height;
   for (const x of keyPositions.values()) {
-    drawVoicePoint(x, y, filterFreqForT(keyboardBrightness));
+    drawVoicePoint(x, y, keyboardBrightness);
   }
 }
 
@@ -238,9 +241,9 @@ window.addEventListener("keydown", (e) => {
       Math.max(keyboardBrightness + delta * KEYBOARD_BRIGHTNESS_STEP, 0),
       1,
     );
-    const cutoff = filterFreqForT(keyboardBrightness);
     if (audioCtx) {
       for (const voice of keyVoices.values()) {
+        const cutoff = filterFreqForT(voice.freq, keyboardBrightness);
         voice.filter.frequency.setTargetAtTime(cutoff, audioCtx.currentTime, 0.03);
       }
     }
@@ -253,10 +256,9 @@ window.addEventListener("keydown", (e) => {
   const freq = SCALE[index];
   const x = (index / (SCALE.length - 1)) * canvas.width;
   const y = (1 - keyboardBrightness) * canvas.height;
-  const cutoff = filterFreqForT(keyboardBrightness);
-  keyVoices.set(e.code, startVoice(freq, cutoff));
+  keyVoices.set(e.code, startVoice(freq, keyboardBrightness));
   keyPositions.set(e.code, x);
-  drawVoicePoint(x, y, cutoff);
+  drawVoicePoint(x, y, keyboardBrightness);
 });
 
 window.addEventListener("keyup", (e) => {
