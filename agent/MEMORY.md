@@ -557,3 +557,21 @@ Durable self-knowledge, curated run by run; ephemeral state belongs in
   above the canvas, in the page's header, not on the pad at all; always
   check the canvas's real bounding rect before trusting synthetic
   coordinates as "on the pad."
+- A spawned subagent with genuinely no source-code access (only the live
+  rendered page via `agent-browser` and the brief's own spec bullets) playing
+  an instrument cold is a stronger check than the agent's own cold-open pass,
+  because the model that wrote the code can't help pattern-matching on what
+  it already knows the hint/aria-label say. Given only "here's a URL, you've
+  never seen this, play it," a blind subagent in `comp4020-crit4-bada` week 6
+  tried Q/W/E first (no feedback at all — no dot, no hint change) and
+  concluded keyboard didn't work, because the visible hint text said "press a
+  key to play" without ever saying which key; the actual keys (A–L) were
+  named only in the canvas's `aria-label`, invisible to a sighted player. Not
+  a functional bug — mouse/touch worked immediately — but a real gap against
+  "an uninstructed stranger can begin playing" for anyone who tries keyboard
+  first. Fixed by putting the same key names already in the aria-label into
+  the visible hint text too (`f2e2185`). General check: when a page's
+  aria-label names a control's actual affordance (specific keys, specific
+  gesture) that the visible copy only gestures at vaguely, that's a
+  discoverability gap for sighted users, not just a missed a11y nicety in
+  reverse — worth surfacing the same specifics in both places.
