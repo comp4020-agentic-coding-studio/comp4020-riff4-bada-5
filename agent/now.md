@@ -1,75 +1,74 @@
 # now
 
-## State as of this run (2026-08-19 ~09:15 AEST, 125.5 h to cutoff, crit 4 "An instrument")
+## State as of this run (2026-08-20 ~15:15 AEST, 94.5 h to cutoff, crit 4 "An instrument")
 
-Sixth run on `comp4020-crit4-bada`. Re-fetched `crits/04-instrument.json` —
-unchanged from the last two runs' notes. Re-checked `package.json`'s `check`
-script and `spec/README.md` per standing habit — unchanged since the course
-automation commit (`7da64d2`) two runs ago. `git fetch` + `git status` confirm
-`origin/main` matches local `HEAD` (`9af1b90`) exactly, nothing unpushed.
+Seventh run on `comp4020-crit4-bada`. Re-fetched `crits/04-instrument.json` —
+unchanged. `git fetch` + `git status` confirmed `origin/main` matched local
+`HEAD` before starting.
 
-`pnpm check`: 33/33 tests, clean typecheck/build — no code changes this run,
-so didn't re-verify beyond confirming the baseline still holds.
+Opened to find the outer `memory/now.md`/`memory/MEMORY.md` (these files)
+stale — still describing a run from ~09:15 the previous day, missing a real
+finding and fix a later run had made (`c930e0a`, the sine-vs-filter bug).
+Traced it: that run edited the repo's `agent/MEMORY.md`/`agent/now.md`
+directly instead of these outer files, and the next "memory: tick" commit
+(`3501a88`) synced outer→repo and silently reverted the good edit back to
+stale content. Recovered the lost finding from `git show 1a8fb22` and wrote
+it into `MEMORY.md` properly this time, along with the actual root-cause
+lesson (`agent/` is harness-synced *from* the outer files, so editing it
+directly is a no-op after the next tick — always write to the outer
+`memory/` files, this repo's own `CLAUDE.md` already says `agent/` is
+harness-owned).
 
-Did another honest cold stranger-test, per the standing pattern (three of the
-last five runs found real gaps this way). This round tried the specific edge
-cases the last hand-off flagged as untried, all against a live `pnpm dev` +
-`agent-browser`:
-
-- **Canvas resize mid-drag**: mouse-down on the pad, drag, then
-  `agent-browser set viewport` to shrink the window mid-drag (768×512 →
-  436×350 canvas), then kept dragging including to coordinates that would
-  have been outside the old bounds. No console errors, no exceptions —
-  `pointerPosition()` re-reads `getBoundingClientRect()` on every event and
-  clamps against the *current* rect, so a resize mid-glide is already safe by
-  construction. Nothing to fix.
-- **Rapid keyboard retrigger**: monkeypatched `OscillatorNode.prototype.start`
-  /`.stop` via `agent-browser open --init-script <file-path>` (note: the flag
-  takes a file path, not inline JS — passing JS text directly to
-  `--init-script` silently no-ops, `window.__starts` stays `undefined` with
-  no error) to count real start/stop calls, then dispatched 5 rapid
-  keydown/keyup pairs for the same key in a tight loop. Counts matched
-  exactly (10 starts, 10 stops for 5 presses × 2 nodes/voice) — no stuck
-  notes, no double-stop exceptions. `keyVoices.has`/`.delete` timing is
-  already correct.
-- **Touch-action / focus order**: confirmed `touch-action: none` is already
-  set on `#pad` (prevents mobile double-tap-zoom/scroll from fighting rapid
-  taps), and that Tab order reaches `CANVAS#pad` cleanly (Home link → canvas)
-  with no `outline` suppression in `styles.css`, so a keyboard-only or
-  screen-reader user tabbing through lands on a properly-labelled, visibly-
-  focusable play surface.
-
-No new bug found this round — a legitimate outcome, not a wasted check (see
-`MEMORY.md`). No commits this run; working tree was already clean and stays
-clean.
+Then did this run's cold-stranger pass, picking up the previous hand-off's
+"known residual limitation" note (brightness sweep weaker for low notes) —
+and found it undersold the problem. Measuring with RMS-via-OfflineAudioContext
+(the previous run's method) showed almost no change project-wide; switching
+to spectral centroid (the right proxy — RMS is dominated by the fundamental
+and hides changes in the harmonics a lowpass actually shapes) showed the
+brightness control was under 4% audible *everywhere* in the scale, not just
+weaker at the bottom. Root cause: a fixed Hz cutoff range doesn't scale with
+a multi-octave scale's own harmonic spacing. Fixed by keytracking the filter
+(cutoff = note frequency × ratio, `DARK_RATIO`–`BRIGHT_RATIO`) and switching
+triangle → sawtooth for richer harmonics — now a consistent ~110% centroid
+shift across every note, confirmed both in isolated filter-response math and
+live in `agent-browser` (traced the real `BiquadFilterNode.frequency` value
+at all four pad corners; ratios landed correctly once I found the canvas's
+actual `getBoundingClientRect()` — an early pass used `y=100`, which was
+above the canvas in the header, giving nonsense identical readings that
+looked like a bug in the app but were a bug in the test). `pnpm check`:
+35/35 (added 2 new contract tests for the keytracking + fundamental-safety
+invariants). Pushed as `981b2f9`.
 
 ## Single most important next action
 
-Still ~125 h out — plenty of runway, not yet the finishing run.
+Still ~94.5 h out — not yet the finishing run, but getting closer.
 
-1. The obvious, cheaply-testable edge cases from the last hand-off are now
-   exhausted (resize mid-drag, rapid retrigger, touch-action, focus order —
-   all clean). Next deepen run should either find a genuinely new angle for
-   the cold-stranger test (ideas not yet tried: `AudioContext` behaviour on
-   tab hide/`visibilitychange` vs. the existing `blur` handler — do they ever
-   diverge on a real device; whether holding a key down for a very long time
-   causes any drift/CPU issue in the LFO graph) or accept that `main.ts` is
-   in good shape and shift attention to something else the brief cares about
-   that hasn't been checked yet from a stranger's perspective — e.g. is the
-   pentatonic scale genuinely forgiving to a musically untrained visitor, or
-   does the vibrato/brightness mapping ever produce something that reads as
-   "broken" rather than "expressive" (a judgement call, not a test — may be
-   better raised as a question for the crit itself than solved unilaterally).
-2. Real multi-touch verification remains untestable from this CLI (carried
-   over unchanged again) — `pointerVoices` keys by `pointerId` so two
-   simultaneous contacts should chord correctly by construction, but this
-   needs an actual touchscreen or the dashboard's `input_touch` WebSocket
-   channel, neither available here.
-3. Don't touch `PROCESS.md`/`reflections/crit-4.md` yet — finishing-run
+1. **Always write to the outer `memory/now.md`/`memory/MEMORY.md`
+   (`/home/ben/projects/comp4020/agents/bada/memory/`), never to a repo's own
+   `agent/` copy** — see the new `MEMORY.md` entry. If `agent/` in a repo
+   ever looks newer than what you just read from outer `memory/`, that's the
+   sync running backwards (a prior run made this exact mistake); diff them
+   and reconstruct from `git log`/`git show` if so.
+2. The brightness-control fix (`981b2f9`) is the main thing to sanity-check
+   live at the next deepen run if there's a spare moment — I verified it via
+   traced filter values and isolated math, but never actually *listened* to
+   it (no audio output in this sandbox). If a run ever has access to real
+   audio output, confirm the dark end sounds meaningfully duller, not just
+   measurably so.
+3. Real multi-touch verification remains untestable from this CLI (carried
+   over unchanged) — `pointerVoices` keys by `pointerId` so two simultaneous
+   contacts should chord correctly by construction, but needs a real
+   touchscreen or the dashboard's `input_touch` WebSocket channel.
+4. Untried cold-stranger angles for a future run: holding a key down for a
+   very long time (LFO/vibrato drift, `AudioContext` node-count growth);
+   whether the pentatonic scale is genuinely forgiving to a musically
+   untrained visitor (a judgement call, maybe better raised at the crit than
+   solved unilaterally).
+5. Don't touch `PROCESS.md`/`reflections/crit-4.md` yet — finishing-run
    steps only, per doctrine. `PROCESS.md` is still the unedited template.
-4. Re-check `package.json`'s `check` script and `spec/README.md` each run
-   before assuming what the checks cover — course automation can rewrite
-   the course-owned surface between runs without this repo's own commits
-   changing (see `MEMORY.md`).
-5. Don't touch any other sibling repo — only this deliverable's window is
+6. Re-check `package.json`'s `check` script and `spec/README.md` each run —
+   unchanged again this run, but course automation can rewrite the
+   course-owned surface between runs without this repo's own commits
+   changing.
+7. Don't touch any other sibling repo — only this deliverable's window is
    open right now.

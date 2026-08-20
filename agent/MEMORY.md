@@ -484,3 +484,55 @@ Durable self-knowledge, curated run by run; ephemeral state belongs in
   artefact, not a stand-in" instinct as the mid-context-fact tests elsewhere
   in this file. Worth checking any future `og:image`/link-preview asset
   against this exception before defaulting to AVIF.
+- `agent/` in a deliverable repo really is harness-owned, and not just by
+  convention — editing `agent/MEMORY.md`/`agent/now.md` directly (instead of
+  the outer `memory/` files this repo's `CLAUDE.md` and the doctrine actually
+  point at) gets silently reverted. A run in `comp4020-crit4-bada` week 6
+  wrote a real finding straight into `agent/MEMORY.md`/`agent/now.md` in the
+  repo (commit `1a8fb22`) without also updating the outer `memory/` files.
+  The very next "memory: tick" commit (`3501a88`) overwrote both `agent/`
+  files back to the *outer* memory's (unchanged, stale) content — the tick
+  process syncs outer→repo, so any edit made only in the repo copy has a
+  half-life of one tick. The lesson `1a8fb22` tried to record (a `now.md`
+  hand-off can be stale even sitting at `HEAD`) was itself erased this way,
+  and had to be reconstructed from `git show <commit> -- agent/MEMORY.md` on
+  a commit that no longer matched the working tree. Always write to the
+  outer `memory/now.md` and `memory/MEMORY.md` (`/home/ben/projects/comp4020
+  /agents/bada/memory/` — one level up from any deliverable repo), never to
+  a repo's own `agent/` copy, and diff the outer files against `agent/` at
+  the start of a run if something in `agent/` looks newer than what was just
+  read — that's the sync running backwards, not forwards.
+- A lowpass filter's audible effect should be measured by spectral centroid
+  (harmonic-amplitude-weighted mean frequency), not RMS — RMS is dominated by
+  the fundamental (the loudest partial), so a filter that meaningfully
+  reshapes the harmonics above it can leave RMS nearly unchanged even when
+  the timbre change is real. This is a step beyond the earlier sine-vs-filter
+  finding in this file (a *sine* has no harmonics to filter at all): here the
+  oscillator already had real harmonic content (a triangle wave), yet an
+  RMS-based check would have called the brightness control "basically fine"
+  while a centroid measurement showed under 4% shift even at the best note —
+  inaudible in practice. Also generalises the earlier fix's other half: don't
+  size a filter's cutoff range as one fixed Hz band shared across a
+  multi-octave scale — a low note's own harmonics already sit close together
+  in Hz, so a fixed range barely reaches past them, while the same range
+  barely touches a high note's much more widely (in Hz) spaced harmonics
+  either, for the opposite reason. Fix is filter *keytracking*: cutoff =
+  note frequency × ratio, so the same brightness fraction sweeps the same
+  proportional harmonic content regardless of pitch — measured to bring
+  every note in the scale to a consistent ~110% centroid shift, versus <4%
+  with a fixed range. `BiquadFilterNode.getFrequencyResponse()` at each
+  harmonic (weighted by the oscillator's own theoretical harmonic series —
+  triangle: odd only, 1/n²; sawtooth: all, 1/n) computes this centroid
+  without any real audio output, so it works in this headless sandbox same
+  as the original filter-response check. Fixed in `comp4020-crit4-bada`
+  week 6 (`981b2f9`), also switching triangle→sawtooth since a sawtooth's
+  slower harmonic falloff gives the filter more to act on. Confirmed live in
+  `agent-browser` too: traced the real `BiquadFilterNode.frequency` value at
+  four corners of the pad (low/high pitch × dark/bright) and the ratio to
+  the note's own fundamental stayed consistent (~1.5–14×) across all four,
+  where the coordinates actually landed inside the canvas's own
+  `getBoundingClientRect()` — a first pass at this got nonsense-looking
+  identical readings back because the test coordinates (`y=100`) landed
+  above the canvas, in the page's header, not on the pad at all; always
+  check the canvas's real bounding rect before trusting synthetic
+  coordinates as "on the pad."
