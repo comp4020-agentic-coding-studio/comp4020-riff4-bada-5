@@ -1,74 +1,65 @@
 # now
 
-## State as of this run (2026-08-20 ~15:15 AEST, 94.5 h to cutoff, crit 4 "An instrument")
+## State as of this run (2026-08-20 ~21:15 AEST, 88.5 h to cutoff, crit 4 "An instrument")
 
-Seventh run on `comp4020-crit4-bada`. Re-fetched `crits/04-instrument.json` —
-unchanged. `git fetch` + `git status` confirmed `origin/main` matched local
-`HEAD` before starting.
+Eighth run. Brief unchanged (re-fetched `crits/04-instrument.json`). `git
+status`/`git fetch` confirmed clean and up to date with `origin/main` before
+starting; outer `memory/` and repo `agent/` copies matched (no repeat of the
+sync-drift bug from two runs ago).
 
-Opened to find the outer `memory/now.md`/`memory/MEMORY.md` (these files)
-stale — still describing a run from ~09:15 the previous day, missing a real
-finding and fix a later run had made (`c930e0a`, the sine-vs-filter bug).
-Traced it: that run edited the repo's `agent/MEMORY.md`/`agent/now.md`
-directly instead of these outer files, and the next "memory: tick" commit
-(`3501a88`) synced outer→repo and silently reverted the good edit back to
-stale content. Recovered the lost finding from `git show 1a8fb22` and wrote
-it into `MEMORY.md` properly this time, along with the actual root-cause
-lesson (`agent/` is harness-synced *from* the outer files, so editing it
-directly is a no-op after the next tick — always write to the outer
-`memory/` files, this repo's own `CLAUDE.md` already says `agent/` is
-harness-owned).
+This run was verification-only — picked up the two untried cold-stranger
+angles the previous hand-off flagged and found no bug in either:
 
-Then did this run's cold-stranger pass, picking up the previous hand-off's
-"known residual limitation" note (brightness sweep weaker for low notes) —
-and found it undersold the problem. Measuring with RMS-via-OfflineAudioContext
-(the previous run's method) showed almost no change project-wide; switching
-to spectral centroid (the right proxy — RMS is dominated by the fundamental
-and hides changes in the harmonics a lowpass actually shapes) showed the
-brightness control was under 4% audible *everywhere* in the scale, not just
-weaker at the bottom. Root cause: a fixed Hz cutoff range doesn't scale with
-a multi-octave scale's own harmonic spacing. Fixed by keytracking the filter
-(cutoff = note frequency × ratio, `DARK_RATIO`–`BRIGHT_RATIO`) and switching
-triangle → sawtooth for richer harmonics — now a consistent ~110% centroid
-shift across every note, confirmed both in isolated filter-response math and
-live in `agent-browser` (traced the real `BiquadFilterNode.frequency` value
-at all four pad corners; ratios landed correctly once I found the canvas's
-actual `getBoundingClientRect()` — an early pass used `y=100`, which was
-above the canvas in the header, giving nonsense identical readings that
-looked like a bug in the app but were a bug in the test). `pnpm check`:
-35/35 (added 2 new contract tests for the keytracking + fundamental-safety
-invariants). Pushed as `981b2f9`.
+1. **Long-held note growth/drift.** Monkeypatched `AudioContext.createOscillator
+   /createGain/createBiquadFilter` via an `--init-script` file (inline JS
+   strings still silently no-op for `--init-script`, per the existing
+   `MEMORY.md` entry — used a real file path) to count node creation/stop
+   calls. A single held key or a held 4-key chord creates exactly the nodes
+   `startVoice` allocates once (2 oscillators + 2 gains + 1 filter per voice)
+   and neither count grows over a multi-second hold nor on repeated
+   `keydown`/`keyup` cycles — confirmed by holding, waiting 3s, checking
+   counts unchanged, then releasing and confirming the stop-call count matches
+   voice count exactly. No leak, no drift; the code has no per-frame logic for
+   held notes at all, so this was never actually at risk — a legitimate
+   "checked, found solid" result.
+2. **Cold-open real interaction pass.** Fresh `agent-browser` session (the
+   node-count test above had already flipped `interacted = true` in the same
+   session, which hid the idle glow/hint in a first screenshot attempt — had
+   to reopen fresh to get a true cold view). Confirmed at both marking
+   viewports (390×844, 1920×1080): idle glow and hint text both present
+   before any interaction, both correctly cleared/hidden on first real mouse
+   drag (via `agent-browser mouse move/down/move.../up`, not synthetic
+   `PointerEvent`s), trail-fade rendering looked as designed, and
+   `agent-browser console`/`errors` showed nothing during or after the drag.
+
+No code changes this run. `pnpm check`: 35/35, unchanged. Didn't touch
+`PROCESS.md`/`reflections/crit-4.md` (finishing-run only, still template).
 
 ## Single most important next action
 
-Still ~94.5 h out — not yet the finishing run, but getting closer.
+~88.5 h out at the start of this run — still not the finishing run, but
+getting close enough that the next couple of runs should start treating
+`PROCESS.md`/`reflections/crit-4.md` as imminent rather than distant.
 
-1. **Always write to the outer `memory/now.md`/`memory/MEMORY.md`
-   (`/home/ben/projects/comp4020/agents/bada/memory/`), never to a repo's own
-   `agent/` copy** — see the new `MEMORY.md` entry. If `agent/` in a repo
-   ever looks newer than what you just read from outer `memory/`, that's the
-   sync running backwards (a prior run made this exact mistake); diff them
-   and reconstruct from `git log`/`git show` if so.
-2. The brightness-control fix (`981b2f9`) is the main thing to sanity-check
-   live at the next deepen run if there's a spare moment — I verified it via
-   traced filter values and isolated math, but never actually *listened* to
-   it (no audio output in this sandbox). If a run ever has access to real
-   audio output, confirm the dark end sounds meaningfully duller, not just
-   measurably so.
-3. Real multi-touch verification remains untestable from this CLI (carried
+1. The brightness-control fix (`981b2f9`) still hasn't been *listened* to
+   (carried over — no audio output in this sandbox). If a run ever has real
+   audio output, confirm the dark end sounds meaningfully duller.
+2. Real multi-touch verification remains untestable from this CLI (carried
    over unchanged) — `pointerVoices` keys by `pointerId` so two simultaneous
    contacts should chord correctly by construction, but needs a real
    touchscreen or the dashboard's `input_touch` WebSocket channel.
-4. Untried cold-stranger angles for a future run: holding a key down for a
-   very long time (LFO/vibrato drift, `AudioContext` node-count growth);
-   whether the pentatonic scale is genuinely forgiving to a musically
-   untrained visitor (a judgement call, maybe better raised at the crit than
-   solved unilaterally).
-5. Don't touch `PROCESS.md`/`reflections/crit-4.md` yet — finishing-run
+3. This run closed out both cold-stranger angles the previous hand-off
+   flagged (long-hold growth/drift, a true cold-open interaction pass) with
+   no bug found. The one angle still explicitly deferred: whether the
+   pentatonic scale is genuinely forgiving to a musically untrained visitor —
+   a judgement call, better raised at the crit than solved unilaterally.
+   Otherwise, no known untried angle remains queued; a future run should do
+   its own fresh cold-stranger pass rather than assume one is waiting here.
+4. Don't touch `PROCESS.md`/`reflections/crit-4.md` yet — finishing-run
    steps only, per doctrine. `PROCESS.md` is still the unedited template.
-6. Re-check `package.json`'s `check` script and `spec/README.md` each run —
+5. Re-check `package.json`'s `check` script and `spec/README.md` each run —
    unchanged again this run, but course automation can rewrite the
    course-owned surface between runs without this repo's own commits
    changing.
-7. Don't touch any other sibling repo — only this deliverable's window is
+6. Don't touch any other sibling repo — only this deliverable's window is
    open right now.

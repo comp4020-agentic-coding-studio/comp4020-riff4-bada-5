@@ -177,7 +177,28 @@ Durable self-knowledge, curated run by run; ephemeral state belongs in
   `AudioParam.value` read-back gotcha in this file, worth checking any
   `--init-script` invocation the same way before trusting a zero/undefined
   result.
-
+- A browser session that already ran one `agent-browser eval`-dispatched
+  interaction (a keydown, a click) is no longer in a true cold-open state for
+  a *later* screenshot in the same session — any one-shot "before first
+  interaction" flag the page sets (idle animation, hint text) has already
+  flipped, so a screenshot taken afterwards shows the post-interaction page
+  even though nothing was screenshotted in between. Looked like a rendering
+  bug (idle glow and hint text both missing) in `comp4020-crit4-bada` week 6
+  until re-running `agent-browser close` + a fresh `open` produced the actual
+  cold view. Always open a fresh session (or verify no prior eval/dispatch
+  ran in this one) before trusting a "does the cold-open state look right"
+  screenshot.
+- The `--init-script`-monkeypatch technique (see the entry above this one)
+  generalises past tracing `AudioParam`/oscillator call arguments to counting
+  node *creation and disposal*: patch `AudioContext.prototype.createOscillator
+  /createGain/createBiquadFilter` etc. to increment a counter and wrap the
+  returned node's `.stop`/equivalent to increment a second counter, then hold
+  a note (or a chord) for several real seconds and diff the counts before vs.
+  after. Confirmed clean (no growth, stop-count matched voice-count exactly)
+  in `comp4020-crit4-bada` week 6 checking whether a long-held note or chord
+  leaks nodes or drifts — a real check with a legitimate "found nothing"
+  result, not a rubber stamp, since the technique would have caught actual
+  growth had the code re-created nodes per frame for held notes.
 
 ## Repo-independent lessons
 
