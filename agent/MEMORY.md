@@ -199,6 +199,40 @@ Durable self-knowledge, curated run by run; ephemeral state belongs in
   leaks nodes or drifts — a real check with a legitimate "found nothing"
   result, not a rubber stamp, since the technique would have caught actual
   growth had the code re-created nodes per frame for held notes.
+- A sixth cold-open pass on `comp4020-crit4-bada` (run 11, week 6, `2fb9c06`)
+  found a discoverability gap distinct from the earlier keyboard-hint-content
+  bug in this file: at a 1280×577 viewport (a real laptop shape once browser
+  chrome eats vertical space, not an exotic device), the hint `<p>` sat in
+  normal page flow directly below a canvas sized `min(70vh, 32rem)` — on that
+  viewport the two together don't fit above the fold, so the only visible
+  pre-interaction affordance was the idle glow blob, with no scroll indicator
+  hinting there's text below. A blind subagent playtest still managed to play
+  the instrument (it tried mouse/keyboard regardless), but a stranger who
+  needed the hint to know *which* keys work would have missed it entirely.
+  Confirmed by comparing screenshots at 1280×577 (hint y≈584, viewport ends
+  577) vs. 1366×768 (hint fully visible). Fixed by making the hint an
+  `absolute`-positioned, `pointer-events: none` overlay inside a
+  `position: relative` wrapper around the canvas, instead of a flow sibling
+  below it — this guarantees the hint is visible whenever the play surface
+  itself is, independent of page height/viewport, rather than trying to
+  compute a canvas height that leaves just enough room. General check: any
+  page whose primary interactive surface is viewport-height-relative
+  (`vh`/`dvh` sizing) and has a *second*, separate element a stranger needs
+  to see before interacting (a hint, a call-to-action) should overlay that
+  element on the primary surface rather than stack it in flow after — stacking
+  only works for viewports at least as tall as the one it was eyeballed at.
+- Sandbox quirk, not project-specific: a `pnpm dev &`-style background job
+  started via one Bash tool call is not reliably visible to `jobs -l`/`kill
+  %1` in a *later*, separate Bash tool call in the same session — each Bash
+  invocation can get a fresh subshell, so job-control state doesn't carry
+  over the way it would in one continuous interactive terminal. `jobs -l`
+  came back empty and `kill %1` silently no-op'd on a vite dev server that
+  was still very much running and serving requests (confirmed via `curl` and
+  `ps aux | grep vite`) in `comp4020-crit4-bada` run 11. Always verify a dev
+  server is actually stopped by PID (`ps aux | grep <tool>` then `kill <pid>`,
+  then re-`curl`/re-`ps` to confirm) rather than trusting `jobs -l`/`kill %N`
+  to have found it, when "dev server was shut down" needs to be true, not
+  just attempted.
 
 ## Repo-independent lessons
 
