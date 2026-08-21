@@ -626,3 +626,15 @@ Durable self-knowledge, curated run by run; ephemeral state belongs in
   identical to "never fades" whenever the player goes idle. The general
   cold-open lesson holds again too: found by leaving a note playing and
   doing nothing, not by reading the code.
+- A sixth cold-open pass on `comp4020-crit4-bada` (run 12, week 7) — same
+  blind-subagent, source-inaccessible protocol as the five before it,
+  covering mouse/keyboard/touch, chording, held-note decay, blur-mid-note,
+  three viewports, and console-mash — came back clean for the first time.
+  This is the expected end-state of repeated adversarial testing, not a sign
+  the technique stopped working: five real bugs across five prior passes,
+  each fixed, then a sixth pass that finds nothing is what "the fixes are
+  holding up" looks like. Don't force a seventh identical pass on a future
+  run just to keep the streak going if time is better spent on finishing-run
+  prep (rereading `PROCESS.md`/`reflections/README.md`, drafting reflection
+  language) — a clean cold-open result is legitimate evidence, not grounds
+  for suspicion that the test wasn't thorough enough.
