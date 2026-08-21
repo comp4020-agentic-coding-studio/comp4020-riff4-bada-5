@@ -1,66 +1,75 @@
 # now
 
-## State as of this run (2026-08-21 ~08:15 AEST, 77.5 h to cutoff, crit 4 "An instrument")
+## State as of this run (2026-08-21 ~15:30 AEST, 70.5 h to cutoff, crit 4 "An instrument")
 
-Ninth run. Brief unchanged (re-fetched `crits/04-instrument.json`). `git
+Tenth run. Brief unchanged (re-fetched `crits/04-instrument.json`). `git
 status`/`git fetch` confirmed clean and up to date with `origin/main` before
-starting. Re-checked `package.json`'s `check` script and `spec/README.md` —
-both unchanged, no repeat of the course-automation drift from two weeks ago.
-`pnpm check` was 35/35 green at the start of the run too, so this was a real
-deepen run on top of a working baseline, not a rescue.
+starting. `pnpm check` was 35/35 green at the start (real deepen run, not a
+rescue).
 
-Still not the finishing run — 77.5h out, doctrine reserves `PROCESS.md`/
-`reflections/crit-4.md` for the run the prompt explicitly calls last.
+**Found and fixed a real gap this run**: spawned another genuinely blind
+subagent (no source access, only the live `agent-browser`-rendered page and
+the brief's spec bullets) to play the instrument cold — same method as the
+last several runs, still earning its keep. It played mouse and keyboard
+successfully, including a blind chord, and found no console errors — but
+noticed the pad's trail/glow only ever redrew on a new input event, so a
+released note's dot froze in place indefinitely until some *unrelated* later
+event happened to fade it. Confirmed with `getImageData` on the exact drawn
+pixel: bit-identical across a multi-second idle gap.
 
-**Found and fixed a real gap this run**, not a "checked, found solid" pass:
-spawned a genuinely blind subagent (no source code access, only the live
-`agent-browser`-rendered page and the brief's spec bullets) to play the
-instrument cold, the same method the crit itself uses (play first, explain
-after). It tried Q/W/E first with zero feedback — no dot, no hint change —
-and reasonably concluded keyboard didn't work at all, because the hint text
-said "press a key to play" without ever saying *which* key. The aria-label on
-the canvas already named the real keys (for screen readers only); fixed by
-putting the same information in the visible hint text: "Click, tap, or press
-A–L to play. Up/Down arrows change the tone." (`f2e2185`). Confirmed 35/35
-still green after, screenshotted at both marking viewports (renders/wraps
-cleanly), checked `agent-browser console`/`errors` clean, pushed, dev server
-stopped.
+Root cause: every fade+redraw happened synchronously inside the
+pointermove/keydown handlers themselves — there was no continuous animation
+loop driving the trail while playing (only the *idle* state, before first
+interaction, had one). Fixed (`be24405`) by replacing the per-event
+fade-and-draw with a `requestAnimationFrame` loop that fades every frame and
+redraws only the currently-active voices (tracked via the existing
+`pointerLast`/`keyPositions` maps) on top, so held notes stay lit and
+released ones actually decay in real time. Reduced-motion keeps the old
+one-shot per-event behaviour (`drawVoicePointStatic`), which is the correct,
+gentler effect there, not a bug.
 
-The rest of the subagent's cold-open report was a clean bill: mouse
-click/drag both work, colour-coded pitch is legible, trail fades correctly
-(no stuck-frame regression), off-canvas drag clamps without errors, chording
-(A+D+G) works, no console errors under any of its break-attempts.
+Verified live in `agent-browser`, fresh session each time (learned lesson
+from an earlier run: a session that's already dispatched one interaction
+isn't a true cold-open for a later screenshot):
+- cold idle glow present and correct
+- three-key chord (A/D/G) all lit brightly while held
+- after releasing all three with zero further input, a screenshot 1.5s later
+  shows the pad fully faded back to background — the actual bug, now fixed
+- a note held continuously for 1s stays fully bright (doesn't fade while
+  still playing) — confirms the fix doesn't make active notes flicker
+- `agent-browser errors` clean throughout
+
+`pnpm check` 35/35 green after the fix. Dev server stopped, temp screenshots
+cleaned up. Pushed.
 
 ## Single most important next action
 
-~77.5h out at the start of this run — close enough now that the next run or
-two should be planning for the finishing run, not just deepening further.
+70.5h out at the start of this run — getting close to the finishing run.
+Expect the next run or the one after to be told it's last.
 
-1. **The blind-cold-tester technique earned its keep again** (third distinct
-   real bug found this way across the project's life, after the idle-glow
-   stuck-frame bug and the keyboard-brightness-asymmetry bug in earlier
-   weeks) — worth repeating once more on a future deepen run, since the
-   method keeps finding gaps that reading the code doesn't.
+1. **The blind-cold-tester technique found a fourth distinct real bug this
+   way** (idle-glow stuck-frame, keyboard-brightness-asymmetry,
+   hint-text-discoverability, now trail-freeze-on-idle). Worth one more pass
+   on a future deepen run if there is one, but diminishing returns are
+   plausible now — the obvious visual/interaction gaps in this instrument
+   may be largely exhausted. If a future blind pass comes back clean, that's
+   a legitimate result, not a failure to look hard enough.
 2. The brightness-control fix (`981b2f9`, week 6) still hasn't been
-   *listened* to — carried over, no audio output in this sandbox. If a run
-   ever has real audio output, confirm the dark end sounds meaningfully
-   duller.
+   *listened to* — carried over, no audio output in this sandbox.
 3. Real multi-touch verification remains untestable from this CLI (carried
-   over unchanged) — `pointerVoices` keys by `pointerId` so two simultaneous
-   contacts should chord correctly by construction, but needs a real
-   touchscreen or the dashboard's `input_touch` WebSocket channel.
+   over unchanged).
 4. The pentatonic-scale-forgiving-to-an-untrained-visitor question is still
    explicitly deferred to the crit, not solved unilaterally (carried over
-   unchanged) — this run's blind tester found it inviting on the mouse path,
-   which is a data point for that discussion, not a resolution of it.
+   unchanged).
 5. Don't touch `PROCESS.md`/`reflections/crit-4.md` yet — finishing-run
    steps only, per doctrine. `PROCESS.md` is still the unedited template.
-   When the finishing run does come: `PROCESS.md` should cite the real
-   commit sequence (the filter/keytrack fix, the blur/visibilitychange
-   release fix, the idle-glow stuck-frame fix, the keyboard-brightness-
-   asymmetry fix, and this run's hint-text discoverability fix are the real
-   spine of the process, not a generic narrative), and the reflection's
-   breakthrough candidate is worth choosing from that same list at the
-   finishing pass rather than defaulting to the most recent one.
+   When the finishing run does come, the real spine of the process is: the
+   filter/keytrack fix (`981b2f9`), the blur/visibilitychange release fix
+   (`fc9eb47`/`2542cb7`), the idle-glow stuck-frame fix (`5d92c29`), the
+   keyboard-brightness-asymmetry fix (`58dfda4`), the hint-text
+   discoverability fix (`f2e2185`), and this run's continuous-trail-fade fix
+   (`be24405`) — six real, blind-tester-or-cold-open-driven moments to choose
+   PROCESS.md's three-or-four and the reflection's breakthrough from, not a
+   generic narrative.
 6. Don't touch any other sibling repo — only this deliverable's window is
    open right now.

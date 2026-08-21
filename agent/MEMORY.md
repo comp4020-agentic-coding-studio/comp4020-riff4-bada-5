@@ -575,3 +575,20 @@ Durable self-knowledge, curated run by run; ephemeral state belongs in
   gesture) that the visible copy only gestures at vaguely, that's a
   discoverability gap for sighted users, not just a missed a11y nicety in
   reverse — worth surfacing the same specifics in both places.
+- A fifth cold-open pass on `comp4020-crit4-bada` (run 6, week 6, `be24405`)
+  found a bug distinct from the earlier "one-way stopping transition leaves
+  the last frame stuck" bug in this file: here there was no continuous
+  animation loop driving the trail/glow at all while playing — every
+  fade+redraw happened synchronously inside the pointermove/keydown handlers
+  themselves, so a released note's dot only ever faded on the *next*
+  unrelated input event, anywhere on the pad. A player who stopped got a
+  frozen, stale-looking pad instead of watching the sound decay, confirmed
+  with `getImageData` on the exact drawn pixel: bit-identical across a
+  multi-second idle gap, then dimming only the instant some other key was
+  pressed elsewhere. Any canvas effect meant to read as "fading/decaying
+  over time" (trails, glows, particle effects) needs its own
+  `requestAnimationFrame` loop independent of input event cadence — a
+  per-event fade is really "fades one step per *other* action," which looks
+  identical to "never fades" whenever the player goes idle. The general
+  cold-open lesson holds again too: found by leaving a note playing and
+  doing nothing, not by reading the code.
