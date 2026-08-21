@@ -20,17 +20,26 @@ a {
   color: #8ab4ff;
 }
 
+.pad-wrap {
+  position: relative;
+  margin-top: 1rem;
+}
+
 #pad {
   display: block;
   width: 100%;
   height: min(70vh, 32rem);
-  margin-top: 1rem;
   border-radius: 0.75rem;
   touch-action: none;
   cursor: crosshair;
 }
 
 [data-testid="hint"] {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0.75rem;
+  margin: 0;
   text-align: center;
   color: #9a9ab0;
+  pointer-events: none;
 }
