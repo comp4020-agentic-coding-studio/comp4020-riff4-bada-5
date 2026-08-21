@@ -86,14 +86,54 @@ function idleLoop(tMs: number): void {
   requestAnimationFrame(idleLoop);
 }
 
-function drawVoicePoint(x: number, y: number, t: number): void {
+// A one-shot fade+dot, used only under prefers-reduced-motion (see below):
+// with no continuous loop, each input event has to carry its own fade.
+function drawVoicePointStatic(x: number, y: number, t: number): void {
   ctx.fillStyle = "rgba(11, 11, 20, 0.2)";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
+  drawDot(x, y, t);
+}
+
+function drawDot(x: number, y: number, t: number): void {
   const hue = 210 - t * 170;
   ctx.beginPath();
   ctx.fillStyle = `hsl(${hue} 90% 60%)`;
   ctx.arc(x, y, 26, 0, Math.PI * 2);
   ctx.fill();
+}
+
+// Redrawing only on input events meant a released note's trail only ever
+// faded on the *next* event, anywhere on the pad — a player who stops
+// playing got a glow frozen in place indefinitely instead of watching it
+// fade. This loop fades every frame instead, and redraws every currently
+// active voice on top so held notes stay lit while everything else decays.
+// Runs forever once started, same as the idle loop it replaces, so a trail
+// left mid-fade is never abandoned. Skipped under reduced motion, where a
+// static frame between events is the intended, gentler behaviour.
+const TRAIL_FADE_ALPHA = 0.045;
+let playLoopRunning = false;
+
+function drawActiveVoices(): void {
+  for (const { x, y } of pointerLast.values()) {
+    drawDot(x, y, brightnessForY(y, canvas.height));
+  }
+  const y = (1 - keyboardBrightness) * canvas.height;
+  for (const x of keyPositions.values()) {
+    drawDot(x, y, keyboardBrightness);
+  }
+}
+
+function playLoop(): void {
+  ctx.fillStyle = `rgba(11, 11, 20, ${TRAIL_FADE_ALPHA})`;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  drawActiveVoices();
+  requestAnimationFrame(playLoop);
+}
+
+function startPlayLoop(): void {
+  if (playLoopRunning || reducedMotion) return;
+  playLoopRunning = true;
+  requestAnimationFrame(playLoop);
 }
 
 function startVoice(freq: number, t: number): Voice {
@@ -147,6 +187,7 @@ function announcePlaying(): void {
   }
   interacted = true;
   hint?.setAttribute("hidden", "");
+  startPlayLoop();
 }
 
 // Pointer (mouse or touch) — one continuous glide per contact point.
@@ -179,7 +220,7 @@ canvas.addEventListener("pointerdown", (e) => {
   const brightness = brightnessForY(y, canvas.height);
   pointerVoices.set(e.pointerId, startVoice(freq, brightness));
   pointerLast.set(e.pointerId, { x, y, t: e.timeStamp });
-  drawVoicePoint(x, y, brightness);
+  if (reducedMotion) drawVoicePointStatic(x, y, brightness);
 });
 
 canvas.addEventListener("pointermove", (e) => {
@@ -203,7 +244,7 @@ canvas.addEventListener("pointermove", (e) => {
   }
   pointerLast.set(e.pointerId, { x, y, t: e.timeStamp });
 
-  drawVoicePoint(x, y, brightness);
+  if (reducedMotion) drawVoicePointStatic(x, y, brightness);
 });
 
 function releasePointer(e: PointerEvent): void {
@@ -226,10 +267,12 @@ const keyVoices = new Map<string, Voice>();
 const keyPositions = new Map<string, number>();
 let keyboardBrightness = 0.5;
 
-function redrawKeyboardVoices(): void {
+// Only needed under reduced motion: with the continuous play loop, held
+// keys already redraw at the new brightness on the very next frame.
+function redrawKeyboardVoicesStatic(): void {
   const y = (1 - keyboardBrightness) * canvas.height;
   for (const x of keyPositions.values()) {
-    drawVoicePoint(x, y, keyboardBrightness);
+    drawVoicePointStatic(x, y, keyboardBrightness);
   }
 }
 
@@ -247,7 +290,7 @@ window.addEventListener("keydown", (e) => {
         voice.filter.frequency.setTargetAtTime(cutoff, audioCtx.currentTime, 0.03);
       }
     }
-    redrawKeyboardVoices();
+    if (reducedMotion) redrawKeyboardVoicesStatic();
     return;
   }
   const index = KEY_NOTES[e.code];
@@ -258,7 +301,7 @@ window.addEventListener("keydown", (e) => {
   const y = (1 - keyboardBrightness) * canvas.height;
   keyVoices.set(e.code, startVoice(freq, keyboardBrightness));
   keyPositions.set(e.code, x);
-  drawVoicePoint(x, y, keyboardBrightness);
+  if (reducedMotion) drawVoicePointStatic(x, y, keyboardBrightness);
 });
 
 window.addEventListener("keyup", (e) => {
