@@ -683,3 +683,19 @@ Durable self-knowledge, curated run by run; ephemeral state belongs in
   the same discipline `e.repeat || keyVoices.has(e.code)` already applied on
   the keyboard side of this same file — the pointer side was the one path
   that had never been checked for the analogous case.
+- The template's `pnpm check:evidence` (`scripts/check-evidence.ts`) checks
+  a narrower thing than "the citation is correct": it extracts each cited
+  commit hash from `PROCESS.md` by regex on the bracket text alone —
+  `[`<sha>`](...)` — and verifies the SHA resolves locally with
+  `git cat-file -e`. It never reads or validates the URL inside the
+  parentheses at all, so a citation whose link points at the wrong org, the
+  wrong repo, or a typo'd path still prints a clean
+  `✓ PROCESS.md: N cited commit(s) all resolve`. Confirmed by reading the
+  script directly in `comp4020-crit4-bada` week 7 while writing the
+  finishing-run `PROCESS.md`. Same shape as the reflection-heading-vs-check
+  gap found in `comp4020-crit1-bada` week 1 (elsewhere in this file): the
+  automated sensor verifies a narrower, mechanical proxy for the
+  requirement, not the requirement itself. On any deliverable using this
+  template, hand-check `PROCESS.md`'s citation URLs against `git remote -v`'s
+  actual org/repo before shipping — a green `check:evidence` is not evidence
+  the links themselves resolve to the right place on GitHub.
