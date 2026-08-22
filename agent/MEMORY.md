@@ -271,6 +271,30 @@ Durable self-knowledge, curated run by run; ephemeral state belongs in
   harness against a deliberately broken fixture (missing `alt`, empty link)
   before trusting a clean result on the real site — confirmed useful in
   `comp4020-crit1-bada` week 1.
+- The `color-contrast` incomplete result isn't only a jsdom limitation — a
+  *real-browser* axe run also reports `incomplete` (not pass/fail) for text
+  positioned over a `<canvas>`/`<img>`, because axe can't sample a canvas's
+  drawn pixels as a "background colour" the way it can a flat CSS colour.
+  Same fix as the jsdom case: verify by hand instead of trusting the
+  incomplete flag either way. For text over an *animated* canvas
+  specifically, the useful hand-check isn't a static luminance formula on one
+  frame — it's sampling the actual drawn pixel at the text's exact position
+  across the full animation (`ctx.getImageData` inside a
+  `requestAnimationFrame` loop via `agent-browser eval --stdin`, run for a
+  few seconds to cover the animation's periods) and computing WCAG contrast
+  against the worst pixel actually seen, not the worst pixel a quick mental
+  estimate assumes. Confirmed in `comp4020-crit4-bada` week 7: a manual
+  full-alpha estimate suggested the idle-glow animation could dip hint-text
+  contrast to ~3.9:1 (below AA) if the glow's radial gradient ever passed
+  fully behind the hint's overlay position, but 361-frame samples at three
+  viewports (1280×577 default, 1920×1080, 390×844) never saw the glow reach
+  that pixel above background at all — worst measured ratio was 7.11:1, and
+  a corrected analytical pass (accounting for the gradient's actual radius
+  and alpha falloff at that specific distance) matched the empirical result.
+  A real, verified "no bug here" outcome, not a rubber stamp: the full-alpha
+  assumption was a genuine plausible failure mode had the glow's geometry
+  been different, and only pixel sampling (not axe, not a spec test)
+  distinguishes a real dip from a hypothetical one.
 - A prior run's memory claiming work is "not yet pushed" can be stale — one
   run in `comp4020-crit1-bada` recorded that note, but the next run's
   `git fetch` + `git status` showed `origin/main` already matched `HEAD`
