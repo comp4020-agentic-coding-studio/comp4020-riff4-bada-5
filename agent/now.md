@@ -1,52 +1,61 @@
 # now
 
-## State as of this run (2026-08-22 ~15:03 AEST, 46.5 h to cutoff, crit 4 "An instrument")
+## State as of this run (2026-08-22 ~21:07 AEST, 40.5 h to cutoff, crit 4 "An instrument")
 
-Thirteenth run, a deepen run (prompt didn't call it last). Re-fetched
+Fourteenth run, a deepen run (prompt didn't call it last). Re-fetched
 `crits/04-instrument.json` — brief unchanged, no `-retro` in `related`.
 `git status`/`git log` confirmed clean and up to date with `origin/main`
-before and after — no code changes this run. `pnpm check` 35/35 green at
-both the start and end.
+before this run started.
 
-**New verification angle this run (not a repeat of the six blind cold-open
-passes):** ran a real-browser axe-core audit (`agent-browser eval --stdin`
-piping `axe.min.js`, per the existing technique in MEMORY.md) against the
-live dev server. Zero violations; one `incomplete` (`color-contrast`) on the
-hint `<p>`, because it's an absolutely-positioned overlay on top of
-`#pad` (the `2fb9c06` fix from two runs ago) and axe can't resolve a
-canvas's drawn pixel as a background colour. Rather than trust or dismiss
-the incomplete flag either way, measured it by hand: sampled the actual
-canvas pixel under the hint's text position via `getImageData` inside a
-`requestAnimationFrame` loop, 361 frames (~6s, spanning the idle glow's
-full period) at three viewports (1280×577, 1920×1080, 390×844). Worst
-measured contrast was 7.11:1 (comfortably above WCAG AA's 4.5:1) — the
-glow's radial gradient never actually reaches the hint's bottom-anchored
-position with enough alpha to matter, confirmed by a corrected analytical
-pass too. A genuine plausible failure mode (my first, rougher full-alpha
-estimate suggested a possible dip to ~3.9:1) that turned out not to hold up
-under measurement — a real "found nothing" result, not a rubber stamp. Full
-writeup and the reusable technique are in MEMORY.md.
+Followed up on the previous run's suggested fresh angle (not another blind
+cold-open pass, which came back clean on run 12) — checked spec bullets not
+yet re-verified line by line against the live site, specifically "no wrong
+way to play." Found and fixed a real bug: `main.ts`'s pointerdown handler
+overwrote `pointerVoices.set(e.pointerId, ...)` unconditionally. A real
+mouse's pointerId is always `1`, and pressing a second button while the
+first is still held fires another `pointerdown` on that same pointerId with
+no `pointerup` between — confirmed by dispatching two synthetic
+`pointerdown`s then one `pointerup` on `pointerId: 1` against a
+monkeypatched `OscillatorNode` start/stop counter (same technique as the
+blur-mid-note fix from week 6): 4 starts against only 2 stops before the
+fix. The first voice's oscillator and LFO were orphaned — droning forever,
+unstoppable by the player. Fixed by stopping any existing voice for that
+pointerId before starting the new one. Re-verified after the fix: 4 starts
+against 4 stops, and a normal single pointerdown/pointerup pair still
+produces 2/2 (no regression). Also spot-checked the keyboard's analogous
+path (rapid re-`keydown` on an already-held key) — already correctly
+guarded by the existing `e.repeat || keyVoices.has(e.code)` check, nothing
+to fix there.
 
-Dev server started for the audit, stopped and verified dead by PID
-(`ps aux` + `kill` + a `curl` connection-refused check).
+`pnpm check` 35/35 green before and after. `pnpm check:evidence` still fails
+on the reflection/PROCESS.md/citation checks, as expected — those are
+finishing-run work, untouched this run per doctrine. Committed
+(`6e3e321`) and pushed. Dev server started for the browser checks, stopped
+and verified dead by PID (`ps aux` + `kill` + a `curl` connection-refused
+check), same discipline as the run-11 lesson about `jobs -l`/`kill %N` not
+being trustworthy for this. Full writeup and the reusable
+"Map keyed by a reusable device id needs an overwrite guard" lesson is in
+MEMORY.md.
 
 ## Single most important next action
 
-46.5h out at the start of this run — realistically one more run, maybe two,
+40.5h out at the start of this run — realistically one more run, maybe two,
 before "last." Expect the finishing-run call soon; watch for it explicitly
 in the next prompt rather than inferring it from hours-remaining arithmetic.
 
 1. **When the finishing run *is* called**, `PROCESS.md`'s three-or-four
    moments and the reflection's one breakthrough should be chosen from the
-   seven real, blind-tester-or-cold-open-driven fixes on record: the
-   filter/keytrack fix (`981b2f9`), the blur/visibilitychange release fix
-   (`fc9eb47`/`2542cb7`), the idle-glow stuck-frame fix (`5d92c29`), the
+   eight real, blind-tester/cold-open/edge-case-driven fixes now on record:
+   the filter/keytrack fix (`981b2f9`), the blur/visibilitychange release
+   fix (`fc9eb47`/`2542cb7`), the idle-glow stuck-frame fix (`5d92c29`), the
    keyboard-brightness-asymmetry fix (`58dfda4`), the hint-text
    discoverability-by-content fix (`f2e2185`), the continuous-trail-fade fix
-   (`be24405`), and the hint-overlay/discoverability-by-layout fix
-   (`2fb9c06`) — not a generic narrative. This run's axe/contrast check found
-   nothing new to add to that list (a verified negative, not an eighth
-   moment).
+   (`be24405`), the hint-overlay/discoverability-by-layout fix (`2fb9c06`),
+   and this run's orphaned-voice-on-reused-pointerId fix (`6e3e321`) — not a
+   generic narrative. Eight is more than the cap, so the finishing run will
+   need to actually choose the strongest three-or-four rather than just
+   listing all of them; the axe/contrast check from run 13 found nothing new
+   to add (a verified negative, not a ninth moment).
 2. The brightness-control fix (`981b2f9`) still hasn't been *listened to* —
    no audio output in this sandbox, only traced-parameter verification.
    Carried over, likely unresolvable here.
@@ -60,10 +69,11 @@ in the next prompt rather than inferring it from hours-remaining arithmetic.
    told it's last, per doctrine.
 6. Don't touch any other sibling repo — only this deliverable's window is
    open right now.
-7. If a future deepen run wants a fresh angle rather than a seventh blind
-   cold-open pass or another sensor-vs-manual-check pass: consider whether
-   there's anything left in the spec bullets not yet explicitly re-checked
-   against the live site line by line (e.g. "no way to play it wrong / no
-   fail state" — has anyone tried to actually break it: rapid resize
-   mid-note, opening two tabs, throttled/no audio hardware, extreme window
-   sizes below 1280×577).
+7. If a future deepen run wants a fresh angle: the "walk the spec bullets
+   against the live site" approach that found this run's bug worked well —
+   other bullets not yet explicitly stress-tested this way: rapid
+   window-resize mid-note (does a mid-drag `canvas.width` reset break
+   anything visible or just redraw on the next frame, as expected?), two
+   tabs open simultaneously (each gets its own `AudioContext`, likely fine
+   but unconfirmed), and extreme window sizes below the already-fixed
+   1280×577 hint-visibility case.

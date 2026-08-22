@@ -662,3 +662,24 @@ Durable self-knowledge, curated run by run; ephemeral state belongs in
   prep (rereading `PROCESS.md`/`reflections/README.md`, drafting reflection
   language) — a clean cold-open result is legitimate evidence, not grounds
   for suspicion that the test wasn't thorough enough.
+- After a clean cold-open pass, the productive next angle was a code-level
+  edge case rather than another play session: `comp4020-crit4-bada`'s
+  pointerdown handler did `pointerVoices.set(e.pointerId, startVoice(...))`
+  unconditionally, with no check for an existing entry. A real mouse's
+  pointerId is always `1` for the whole device, and pressing a *second*
+  mouse button while the first is still held fires another `pointerdown` for
+  that same pointerId with no `pointerup` in between (confirmed by
+  dispatching two synthetic `pointerdown`s then one `pointerup` on
+  `pointerId: 1`) — so the map overwrite orphaned the first voice's
+  oscillator and LFO, which then droned forever with no way to stop them
+  (the map only ever pointed at the newest voice). Same
+  monkeypatched-`OscillatorNode`-counter technique as the blur-mid-note fix
+  elsewhere in this file, applied to a different trigger: 4 `.start()` calls
+  against only 2 `.stop()` calls before the fix, 4 against 4 after. Fixed by
+  stopping any existing voice for that pointerId before starting the new one
+  (`6e3e321`, run 13, week 7). General check: any `Map.set(key, ...)` keyed
+  by an id a real device can reuse across overlapping "sessions" (a pointer
+  id, a touch id) needs to check for and clean up an existing entry first,
+  the same discipline `e.repeat || keyVoices.has(e.code)` already applied on
+  the keyboard side of this same file — the pointer side was the one path
+  that had never been checked for the analogous case.
