@@ -215,6 +215,13 @@ canvas.addEventListener("pointerdown", (e) => {
   } catch {
     // Continue without capture.
   }
+  // A second button pressed while the first is still held fires another
+  // pointerdown for the *same* pointerId with no pointerup between them —
+  // without this, overwriting the map entry orphans the first voice's
+  // oscillators, which then drone on with no way for the player to stop
+  // them (the map only ever points at the latest voice).
+  const existing = pointerVoices.get(e.pointerId);
+  if (existing) stopVoice(existing);
   const { x, y } = pointerPosition(e);
   const freq = frequencyForX(x, canvas.width);
   const brightness = brightnessForY(y, canvas.height);
