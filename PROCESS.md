@@ -1,85 +1,72 @@
 # Process overview
 
-<!-- TEMPLATE: this file is a shape to fill in, not a form. Replace everything
-     in it with your own overview, and delete this comment — `pnpm
-     check:evidence` will remind you if it's still here. -->
-
-A reading-guide to how the work came together --- a map to your process, not an
-essay about it. Markers read this file and follow its citations; they don't
-trawl the repo for evidence you didn't point at, so if a moment mattered, cite
-it.
-
-This file is the shape; the course site's
+The course site's
 [assessment page](https://comp.anu.edu.au/courses/comp4020-agentic-coding-studio/topics/assessment/#what-you-submit)
-is the requirement, and its
-[word counts](https://comp.anu.edu.au/courses/comp4020-agentic-coding-studio/topics/assessment/#word-counts)
-cover every deliverable.
+is the requirement; this is the reading guide.
 
 ## What I built
 
-One paragraph: the thing, and the idea behind it.
+**Wavefield**: a canvas pad that plays a five-note pentatonic scale.
+Position on the pad sets pitch (x) and filter brightness (y) for a mouse or
+touch drag; the home row (A–L) plays the same scale on a keyboard, with
+Up/Down sweeping brightness live and multiple keys held together forming a
+chord. Every voice is a sawtooth through a keytracked lowpass and a
+speed-driven vibrato LFO, so a slow glide and a fast flick across the same
+path sound different, and no position or key combination is a wrong one to
+try.
 
 ## The moments that mattered
 
-Three or four for an assignment; fewer is fine for a weekly prototype. Keep the
-list short so each moment has room to do all four jobs:
-
-1. **what happened** --- the problem, or the thing that went wrong
-2. **what you did instead of the obvious thing** --- the call you made, and why
-   it beat the obvious one
-3. **how you knew it was right** --- the check you ran, the viewport you looked
-   at, what you read before accepting the diff
-4. **the citation** --- a commit or commit range, a `CLAUDE.md` change, a check
-   that went from red to green, a prompt paired with the commit it produced
-
-Jobs 2 and 3 are the ones the repo can't tell a reader on its own, so they're
-where the marks are. The strongest moments are the ones where a correction
-landed in the **harness** --- the standards and checks your work has to satisfy
---- rather than in a retry: a rule added to `CLAUDE.md`, a check wired up, an
-attempt thrown away. Retrying until it passes is the routine case, and changing
-what the work runs against is the skilled one.
-
-Cite each moment as a link whose text is the commit hash or range and whose
-target is this repo's commit or compare URL, so a reader clicks straight to the
-evidence:
-
-- one commit: [`a1b2c3d`](https://github.com/YOUR-ORG/YOUR-REPO/commit/a1b2c3d)
-- a range:
-  [`a1b2c3d...e4f5a6b`](https://github.com/YOUR-ORG/YOUR-REPO/compare/a1b2c3d...e4f5a6b)
-
-To pair a prompt with the commit it produced, quote the prompt (curated, not a
-full transcript) next to the citation:
-
-> the prompt, verbatim
-
-Screenshots are welcome where one carries the verification better than a
-sentence does. Commit the file to this repo and link it with a **relative**
-path, which is what makes it render on GitHub: `![alt text](docs/before.png)`.
-Images don't count towards the word count and don't replace the citation.
-
-### A worked moment, for shape
-
-Delete this section along with the rest of the boilerplate --- it's here to show
-the four jobs in one paragraph, not to be imitated in content.
-
-> The date formatter kept coming back with `toLocaleDateString()` and no locale
-> argument, so the same build rendered differently on my machine and in CI. I'd
-> already re-prompted it twice, which fixed the line but not the habit, so the
-> third time I put the rule in `CLAUDE.md` instead
-> ([`3f9ac21`](https://github.com/YOUR-ORG/YOUR-REPO/commit/3f9ac21)) and added
-> a spec test that fails on a bare `toLocaleDateString`. That's what told me it
-> had actually taken: the test went red against the old code and green against
-> the new, and the next two features it wrote passed it without prompting
-> ([`3f9ac21...b7e0d14`](https://github.com/YOUR-ORG/YOUR-REPO/compare/3f9ac21...b7e0d14)).
+1. **The brightness filter was inaudible, and a naive check would have
+   missed why.** A lowpass "brightness" control barely changed the tone: a
+   pure sine has no harmonics for a lowpass to remove at all
+   ([`c930e0a`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit4-bada/commit/c930e0afaa5df37b31ba08e59dfeeec238882e58)),
+   and switching to a harmonic-rich wave still barely moved things once
+   measured properly. RMS looked fine because it's dominated by the
+   fundamental, the loudest partial — the actual perceptual measure is
+   spectral centroid, which showed under 4% shift even at the best note. The
+   real fix was keytracking the cutoff to each note's own fundamental rather
+   than sweeping one fixed Hz range across a multi-octave scale
+   ([`981b2f9`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit4-bada/commit/981b2f9eed49d339099dffeb3e7dff50ca1a7bd1)),
+   verified with `BiquadFilterNode.getFrequencyResponse()` against each
+   note's theoretical harmonic series until every note in the scale reached
+   a consistent ~110% centroid shift.
+2. **A silent stranger-test found an expressive asymmetry no code review
+   would.** With no source access, a blind pass dragged the pad, then
+   chorded the home row — and every keyboard note landed at the same fixed
+   brightness, where pointer play already carried pitch, brightness, and
+   speed-vibrato. Fixed by giving Up/Down arrows the same live brightness
+   dimension, including across keys already held
+   ([`58dfda4`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit4-bada/commit/58dfda4869992c01e7ce966b6c47adbe157ec019)) —
+   a gap the brief's own bar names directly ("two people at the same page
+   sound different") but that only surfaced by actually playing it like a
+   stranger would, not by reading the event handlers.
+3. **"No way to get it wrong" is a claim about states a player can reach,
+   not just inputs they can give — so I tested leaving, not just playing.**
+   Alt-tabbing mid-note never delivers the matching `keyup`; the held-key
+   guard then blocked the same key from restarting once focus returned, so
+   a stuck drone had no recovery short of reloading
+   ([`fc9eb47`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit4-bada/commit/fc9eb47b2e65a4aadf54ac18fd72c232dea28f7b)).
+   A follow-up dispatch of `visibilitychange` without `blur` (the real path
+   on mobile backgrounding) showed the first fix wasn't enough on its own
+   ([`2542cb7`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit4-bada/commit/2542cb71917e381b415875bcb4a08b3269bd2e6b)).
+   Both verified the same way: monkeypatch `OscillatorNode.stop` via
+   `agent-browser`'s `--init-script`, count calls against `.start()`, dispatch
+   the event with no real audio output needed.
+4. **Walking the brief's own bullets against the live site, one by one,
+   found what cold-open play sessions hadn't.** "No wrong way to play"
+   turned into a literal check: what happens on a second mouse button while
+   the first is still held? A real mouse's pointerId is always `1`, so that
+   fires another `pointerdown` on the same id with no `pointerup` between —
+   overwriting the voice map orphaned the first oscillator, droning forever
+   with no way to stop it. Fixed by stopping any existing voice for a
+   pointerId before starting a new one
+   ([`6e3e321`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit4-bada/commit/6e3e32184434f5727d50185fa8457d64bf42a078)),
+   confirmed with the same start/stop counter (4 starts against 2 stops
+   before, 4 against 4 after).
 
 ## Before you ship
 
-`pnpm check:evidence` verifies your citations resolve to real commits, that the
-current reflection entry is in `reflections/`, and that your `CLAUDE.md` is
-there --- before a marker ever opens the file. It checks that your map is
-traceable, not that it is good: the marker judges whether your small,
-deliberately chosen set of moments shows real judgement and reflection. A green
-check is not a substitute for that curation.
-
-Images are deliberately not checked, because whether one renders is visible the
-moment you look. Open this file on GitHub and look at it before you ship.
+`pnpm check:evidence` verifies citations resolve and the reflection file is
+present; it doesn't judge the moments themselves. `pnpm check` is 35/35
+green as of this run.
