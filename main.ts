@@ -72,6 +72,13 @@ let replayFrame: number | undefined;
 const replayVoices = new Map<string, Voice>();
 const replayPoints = new Map<string, { x: number; y: number; color: string }>();
 const replayLast = new Map<string, { x: number; y: number; at: number }>();
+const replayEchoes: Array<{
+  x: number;
+  y: number;
+  color: string;
+  createdAt: number;
+}> = [];
+const REPLAY_ECHO_LIFETIME_MS = 900;
 
 function updateRecordingControls(message?: string): void {
   const hasRecording = recording.length > 0;
@@ -307,6 +314,19 @@ let playLoopRunning = false;
 
 function drawActiveVoices(): void {
   drawRecordedTrail();
+  const now = performance.now();
+  for (let index = replayEchoes.length - 1; index >= 0; index -= 1) {
+    const echo = replayEchoes[index];
+    const age = now - echo.createdAt;
+    if (age >= REPLAY_ECHO_LIFETIME_MS) {
+      replayEchoes.splice(index, 1);
+      continue;
+    }
+    ctx.save();
+    ctx.globalAlpha = (1 - age / REPLAY_ECHO_LIFETIME_MS) * 0.62;
+    drawDot(echo.x, echo.y, brightnessForY(echo.y, canvas.height), echo.color);
+    ctx.restore();
+  }
   for (const { x, y, color } of pointerLast.values()) {
     drawDot(x, y, brightnessForY(y, canvas.height), color);
   }
@@ -446,6 +466,7 @@ function replayRecording(): void {
   releaseAllVoices();
   announcePlaying();
   isReplaying = true;
+  replayEchoes.length = 0;
   updateRecordingControls("Replaying recorded path…");
   getAudio();
 
@@ -472,6 +493,13 @@ function replayRecording(): void {
       }
       const frequency =
         frequencyForX(x, canvas.width) * event.pitchScale;
+      if (event.kind !== "end") {
+        // A single animation frame can consume several densely recorded
+        // samples. Keep each one as a fading echo instead of displaying only
+        // the final Map position and visually skipping everything in between.
+        replayEchoes.push({ x, y, color: event.color, createdAt: now });
+        if (replayEchoes.length > 1600) replayEchoes.shift();
+      }
       if (event.kind === "start") {
         const previousVoice = replayVoices.get(event.id);
         if (previousVoice) stopVoice(previousVoice);
