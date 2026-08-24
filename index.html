@@ -26,15 +26,25 @@
       </nav>
     </header>
     <main>
-      <h1>Wavefield</h1>
+      <div class="title-bar">
+        <div>
+          <h1>Wavefield</h1>
+          <p id="recording-status" aria-live="polite">Play to record a path</p>
+        </div>
+        <div class="transport" aria-label="Recorded path controls">
+          <button id="eraser" type="button" aria-pressed="false">Eraser</button>
+          <button id="replay" type="button" disabled>Replay path</button>
+          <button id="clear-recording" type="button" disabled>Clear</button>
+        </div>
+      </div>
       <div class="pad-wrap">
         <canvas
           id="pad"
           tabindex="0"
-          aria-label="Play surface — move your pointer across it, or press A to L, to make sound. Up and Down arrows brighten or darken the tone, even while keys are held"
+          aria-label="Play surface — draw to make sound. Hold Shift for a higher octave or Control for a lower octave. Use Eraser to edit recorded paths"
         ></canvas>
         <p data-testid="hint">
-          Click, tap, or press A–L to play. Up/Down arrows change the tone.
+          Draw to play · Shift = high · Ctrl = low · Eraser edits paths
         </p>
       </div>
     </main>

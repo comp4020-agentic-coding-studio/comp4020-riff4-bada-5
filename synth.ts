@@ -8,8 +8,9 @@ export const SCALE: readonly number[] = [
   1046.5,
 ];
 
-// The oscillator is a sawtooth (see main.ts): all harmonics, falling off as
-// 1/n, so there's real high-frequency content for the lowpass to remove.
+// The main oscillator is a triangle layered with a quiet sine one octave up
+// (see main.ts). This keeps the instrument rounded while leaving enough upper
+// colour for the lowpass to shape.
 // The filter cutoff is keytracked — scaled relative to each voice's own note
 // frequency (cutoff = freq * ratio) rather than one fixed Hz range shared by
 // the whole scale. A fixed range mostly sat inside a low note's own harmonic
@@ -23,8 +24,8 @@ export const SCALE: readonly number[] = [
 // confirmed via BiquadFilterNode.getFrequencyResponse() at DARK_RATIO across
 // every note in SCALE: the fundamental gains slightly (~+1.7dB, the filter's
 // own resonance peak), never attenuates.
-export const DARK_RATIO = 1.5;
-export const BRIGHT_RATIO = 14;
+export const DARK_RATIO = 1.45;
+export const BRIGHT_RATIO = 8;
 
 // x-axis: pitch, quantized to the scale (left low, right high).
 export function frequencyForX(x: number, width: number): number {
@@ -82,8 +83,8 @@ export const KEYBOARD_BRIGHTNESS_STEP = 0.08;
 // flick across the same notes — not just faster, but *more textured* — so
 // speed of pointer travel drives vibrato depth (in cents) on top of the
 // pitch/brightness mapping above.
-export const VIBRATO_RATE_HZ = 5.5;
-const MAX_VIBRATO_CENTS = 40;
+export const VIBRATO_RATE_HZ = 5.2;
+const MAX_VIBRATO_CENTS = 28;
 const VIBRATO_FULL_SPEED_PX_PER_MS = 1.5;
 
 export function vibratoCentsForSpeed(speedPxPerMs: number): number {

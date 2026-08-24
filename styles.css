@@ -2,9 +2,23 @@
   color-scheme: dark;
 }
 
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
 body {
   margin: 0;
-  padding: 2rem;
+  padding: clamp(0.75rem, 1.5vw, 1.5rem);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 0.4rem;
   font-family: system-ui, sans-serif;
   line-height: 1.6;
   color: #e8e8f0;
@@ -12,8 +26,16 @@ body {
 }
 
 main {
-  max-width: 48rem;
-  margin: 0 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 0.6rem;
+  overflow: hidden;
+}
+
+h1 {
+  margin: 0;
+  line-height: 1.15;
 }
 
 a {
@@ -22,16 +44,98 @@ a {
 
 .pad-wrap {
   position: relative;
-  margin-top: 1rem;
+  min-height: 0;
+  overflow: hidden;
 }
 
 #pad {
   display: block;
   width: 100%;
-  height: min(70vh, 32rem);
+  height: 100%;
   border-radius: 0.75rem;
   touch-action: none;
   cursor: crosshair;
+}
+
+#pad.eraser-active {
+  cursor: cell;
+}
+
+.title-bar,
+.transport {
+  display: flex;
+  align-items: center;
+}
+
+.title-bar {
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.transport {
+  gap: 0.6rem;
+}
+
+#recording-status {
+  margin: 0.1rem 0 0;
+  color: #9a9ab0;
+  font-size: 0.9rem;
+}
+
+button {
+  border: 1px solid #3f4970;
+  border-radius: 999px;
+  padding: 0.55rem 0.9rem;
+  color: #e8e8f0;
+  background: #17182b;
+  font: inherit;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: #252844;
+}
+
+button[aria-pressed="true"] {
+  border-color: #ff8ab8;
+  color: #fff;
+  background: #72264a;
+}
+
+button:focus-visible {
+  outline: 2px solid #8ab4ff;
+  outline-offset: 2px;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+@media (max-height: 32rem) {
+  header {
+    display: none;
+  }
+
+  body {
+    padding-block: 0.6rem;
+  }
+}
+
+@media (max-width: 42rem) {
+  .title-bar {
+    align-items: flex-start;
+  }
+
+  .transport {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  button {
+    padding: 0.45rem 0.7rem;
+    font-size: 0.85rem;
+  }
 }
 
 [data-testid="hint"] {

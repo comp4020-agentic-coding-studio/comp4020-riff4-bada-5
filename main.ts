@@ -11,8 +11,11 @@ import {
 
 interface Voice {
   osc: OscillatorNode;
+  companion: OscillatorNode;
+  companionGain: GainNode;
   gain: GainNode;
   filter: BiquadFilterNode;
+  panner: StereoPannerNode;
   lfo: OscillatorNode;
   lfoGain: GainNode;
   freq: number;
@@ -29,6 +32,137 @@ const canvas = required(
 );
 const ctx = required(canvas.getContext("2d"), "2d context unavailable");
 const hint = document.querySelector<HTMLElement>('[data-testid="hint"]');
+const eraserButton = required(
+  document.querySelector<HTMLButtonElement>("#eraser"),
+  "missing #eraser button",
+);
+const replayButton = required(
+  document.querySelector<HTMLButtonElement>("#replay"),
+  "missing #replay button",
+);
+const clearButton = required(
+  document.querySelector<HTMLButtonElement>("#clear-recording"),
+  "missing #clear-recording button",
+);
+const recordingStatus = required(
+  document.querySelector<HTMLElement>("#recording-status"),
+  "missing #recording-status",
+);
+
+type RecordedKind = "start" | "move" | "end";
+
+interface RecordedEvent {
+  kind: RecordedKind;
+  id: string;
+  x: number;
+  y: number;
+  at: number;
+  pitchScale: number;
+  color: string;
+  erased?: boolean;
+}
+
+const recording: RecordedEvent[] = [];
+const recordingLastSample = new Map<string, RecordedEvent>();
+let recordedDuration = 0;
+let lastRecordedAt: number | undefined;
+let isReplaying = false;
+let eraseMode = false;
+let replayFrame: number | undefined;
+const replayVoices = new Map<string, Voice>();
+const replayPoints = new Map<string, { x: number; y: number; color: string }>();
+const replayLast = new Map<string, { x: number; y: number; at: number }>();
+
+function updateRecordingControls(message?: string): void {
+  const hasRecording = recording.length > 0;
+  const hasPlayablePath = recording.some(
+    (event) => !event.erased && event.kind !== "end",
+  );
+  replayButton.disabled = !hasPlayablePath || isReplaying;
+  clearButton.disabled = !hasRecording || isReplaying;
+  eraserButton.disabled = !hasRecording || isReplaying;
+  recordingStatus.textContent =
+    message ??
+    (hasRecording
+      ? `Recorded path · ${(recordedDuration / 1000).toFixed(1)}s`
+      : "Play to record a path");
+}
+
+function pitchScaleForModifiers(shift: boolean, control: boolean): number {
+  if (shift && !control) return 2;
+  if (control && !shift) return 0.5;
+  return 1;
+}
+
+function colorForSound(frequency: number, brightness: number): string {
+  const octavePosition = Math.log2(frequency / (SCALE[0] / 2));
+  const hue = (195 + octavePosition * 72) % 360;
+  const lightness = 52 + brightness * 16;
+  return `hsl(${hue} 92% ${lightness}%)`;
+}
+
+function recordEvent(
+  kind: RecordedKind,
+  id: string,
+  x: number,
+  y: number,
+  pitchScale = 1,
+): void {
+  if (isReplaying) return;
+  const now = performance.now();
+  if (lastRecordedAt !== undefined) {
+    // Preserve the player's timing while keeping a long pause between gestures
+    // from making a replay appear to have stalled.
+    const maximumGap = kind === "start" ? 600 : 150;
+    recordedDuration += Math.min(now - lastRecordedAt, maximumGap);
+  }
+  lastRecordedAt = now;
+  const normalX = canvas.width > 0 ? x / canvas.width : 0;
+  const normalY = canvas.height > 0 ? y / canvas.height : 0;
+  const previous = recordingLastSample.get(id);
+  const distance = previous
+    ? Math.hypot(
+        (normalX - previous.x) * canvas.width,
+        (normalY - previous.y) * canvas.height,
+      )
+    : 0;
+  const sampleCount =
+    kind === "move" && previous ? Math.max(1, Math.ceil(distance / 10)) : 1;
+
+  let finalEvent: RecordedEvent | undefined;
+  for (let sample = 1; sample <= sampleCount; sample += 1) {
+    const amount = sample / sampleCount;
+    const sampleX = previous
+      ? previous.x + (normalX - previous.x) * amount
+      : normalX;
+    const sampleY = previous
+      ? previous.y + (normalY - previous.y) * amount
+      : normalY;
+    const sampleAt = previous
+      ? previous.at + (recordedDuration - previous.at) * amount
+      : recordedDuration;
+    const sampleBrightness = brightnessForY(
+      sampleY * canvas.height,
+      canvas.height,
+    );
+    const sampleFrequency =
+      frequencyForX(sampleX * canvas.width, canvas.width) * pitchScale;
+    finalEvent = {
+      kind: sample === sampleCount ? kind : "move",
+      id,
+      x: sampleX,
+      y: sampleY,
+      at: sampleAt,
+      pitchScale,
+      color: colorForSound(sampleFrequency, sampleBrightness),
+    };
+    recording.push(finalEvent);
+  }
+
+  if (kind === "end") recordingLastSample.delete(id);
+  else if (finalEvent) recordingLastSample.set(id, finalEvent);
+  updateRecordingControls(kind === "end" ? undefined : "Recording path…");
+}
 
 let audioCtx: AudioContext | undefined;
 let master: GainNode | undefined;
@@ -39,10 +173,28 @@ function getAudio(): { audio: AudioContext; bus: GainNode } {
   if (!audioCtx || !master) {
     audioCtx = new AudioContext();
     const compressor = audioCtx.createDynamicsCompressor();
+    compressor.threshold.value = -18;
+    compressor.knee.value = 18;
+    compressor.ratio.value = 4;
+    compressor.attack.value = 0.008;
+    compressor.release.value = 0.24;
     compressor.connect(audioCtx.destination);
+
+    // A short, quiet feedback delay gives quick gestures a little sparkle and
+    // makes chords feel wider without washing out the next notes.
+    const delay = audioCtx.createDelay(1);
+    delay.delayTime.value = 0.19;
+    const feedback = audioCtx.createGain();
+    feedback.gain.value = 0.17;
+    const wet = audioCtx.createGain();
+    wet.gain.value = 0.2;
+    delay.connect(feedback).connect(delay);
+    delay.connect(wet).connect(compressor);
+
     master = audioCtx.createGain();
-    master.gain.value = 0.5;
+    master.gain.value = 0.62;
     master.connect(compressor);
+    master.connect(delay);
   }
   if (audioCtx.state === "suspended") void audioCtx.resume();
   return { audio: audioCtx, bus: master };
@@ -88,18 +240,58 @@ function idleLoop(tMs: number): void {
 
 // A one-shot fade+dot, used only under prefers-reduced-motion (see below):
 // with no continuous loop, each input event has to carry its own fade.
-function drawVoicePointStatic(x: number, y: number, t: number): void {
+function drawVoicePointStatic(
+  x: number,
+  y: number,
+  t: number,
+  color?: string,
+): void {
   ctx.fillStyle = "rgba(11, 11, 20, 0.2)";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  drawDot(x, y, t);
+  drawRecordedTrail();
+  drawDot(x, y, t, color);
 }
 
-function drawDot(x: number, y: number, t: number): void {
+function drawDot(x: number, y: number, t: number, color?: string): void {
   const hue = 210 - t * 170;
   ctx.beginPath();
-  ctx.fillStyle = `hsl(${hue} 90% 60%)`;
+  ctx.fillStyle = color ?? `hsl(${hue} 90% 60%)`;
   ctx.arc(x, y, 26, 0, Math.PI * 2);
   ctx.fill();
+}
+
+function drawRecordedTrail(): void {
+  if (recording.length === 0) return;
+  const lastPoint = new Map<string, { x: number; y: number }>();
+  ctx.save();
+  ctx.lineWidth = 3;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  for (const event of recording) {
+    if (event.erased) {
+      lastPoint.delete(event.id);
+      continue;
+    }
+    const x = event.x * canvas.width;
+    const y = event.y * canvas.height;
+    if (event.kind === "start") {
+      ctx.moveTo(x, y);
+      lastPoint.set(event.id, { x, y });
+    } else if (event.kind === "move") {
+      const previous = lastPoint.get(event.id);
+      if (previous) {
+        ctx.beginPath();
+        ctx.moveTo(previous.x, previous.y);
+        ctx.lineTo(x, y);
+        ctx.strokeStyle = event.color;
+        ctx.stroke();
+      }
+      lastPoint.set(event.id, { x, y });
+    } else {
+      lastPoint.delete(event.id);
+    }
+  }
+  ctx.restore();
 }
 
 // Redrawing only on input events meant a released note's trail only ever
@@ -114,12 +306,16 @@ const TRAIL_FADE_ALPHA = 0.045;
 let playLoopRunning = false;
 
 function drawActiveVoices(): void {
-  for (const { x, y } of pointerLast.values()) {
-    drawDot(x, y, brightnessForY(y, canvas.height));
+  drawRecordedTrail();
+  for (const { x, y, color } of pointerLast.values()) {
+    drawDot(x, y, brightnessForY(y, canvas.height), color);
   }
   const y = (1 - keyboardBrightness) * canvas.height;
   for (const x of keyPositions.values()) {
     drawDot(x, y, keyboardBrightness);
+  }
+  for (const { x, y, color } of replayPoints.values()) {
+    drawDot(x, y, brightnessForY(y, canvas.height), color);
   }
 }
 
@@ -139,19 +335,30 @@ function startPlayLoop(): void {
 function startVoice(freq: number, t: number): Voice {
   const { audio, bus } = getAudio();
   const osc = audio.createOscillator();
-  // Sawtooth, not triangle — a triangle's harmonics fall off too fast
-  // (1/n^2) to give the keytracked lowpass below anything to shape, so the
-  // "brightness" sweep barely moved the spectral centroid (<4% even at the
-  // top note). A sawtooth's harmonics fall off more slowly (1/n), giving the
-  // filter real material to remove. See synth.ts for the keytracking itself.
-  osc.type = "sawtooth";
+  osc.type = "triangle";
   osc.frequency.value = freq;
+
+  // A detuned sine an octave above adds a glassy edge whose level follows
+  // brightness. Sine waves keep that colour smooth instead of buzzy.
+  const companion = audio.createOscillator();
+  companion.type = "sine";
+  companion.frequency.value = freq * 2;
+  companion.detune.value = 7;
+  const companionGain = audio.createGain();
+  companionGain.gain.value = 0.05 + t * 0.12;
+
   const filter = audio.createBiquadFilter();
   filter.type = "lowpass";
-  filter.Q.value = 0.8;
+  filter.Q.value = 0.55;
   filter.frequency.value = filterFreqForT(freq, t);
   const gain = audio.createGain();
   gain.gain.value = 0;
+  const panner = audio.createStereoPanner();
+  const scalePosition =
+    (Math.log2(freq / SCALE[0]) / Math.log2(SCALE[SCALE.length - 1] / SCALE[0])) *
+      2 -
+    1;
+  panner.pan.value = Math.min(Math.max(scalePosition * 0.68, -0.68), 0.68);
   // Vibrato depth (lfoGain, in cents) starts at zero and is driven by
   // pointer speed — a held key or a still pointer stays pure.
   const lfo = audio.createOscillator();
@@ -159,20 +366,159 @@ function startVoice(freq: number, t: number): Voice {
   const lfoGain = audio.createGain();
   lfoGain.gain.value = 0;
   lfo.connect(lfoGain).connect(osc.detune);
+  lfoGain.connect(companion.detune);
   lfo.start();
-  osc.connect(filter).connect(gain).connect(bus);
+  osc.connect(filter);
+  companion.connect(companionGain).connect(filter);
+  filter.connect(gain).connect(panner).connect(bus);
   osc.start();
-  gain.gain.linearRampToValueAtTime(0.35, audio.currentTime + 0.04);
-  return { osc, gain, filter, lfo, lfoGain, freq };
+  companion.start();
+  gain.gain.linearRampToValueAtTime(0.28, audio.currentTime + 0.065);
+  return {
+    osc,
+    companion,
+    companionGain,
+    gain,
+    filter,
+    panner,
+    lfo,
+    lfoGain,
+    freq,
+  };
+}
+
+function updateVoiceTone(voice: Voice, freq: number, brightness: number): void {
+  if (!audioCtx) return;
+  const now = audioCtx.currentTime;
+  voice.freq = freq;
+  voice.osc.frequency.setTargetAtTime(freq, now, 0.035);
+  voice.companion.frequency.setTargetAtTime(freq * 2, now, 0.04);
+  voice.filter.frequency.setTargetAtTime(
+    filterFreqForT(freq, brightness),
+    now,
+    0.04,
+  );
+  voice.companionGain.gain.setTargetAtTime(
+    0.05 + brightness * 0.12,
+    now,
+    0.05,
+  );
+  const scalePosition =
+    (Math.log2(freq / SCALE[0]) / Math.log2(SCALE[SCALE.length - 1] / SCALE[0])) *
+      2 -
+    1;
+  voice.panner.pan.setTargetAtTime(
+    Math.min(Math.max(scalePosition * 0.68, -0.68), 0.68),
+    now,
+    0.06,
+  );
 }
 
 function stopVoice(voice: Voice): void {
   if (!audioCtx) return;
   const now = audioCtx.currentTime;
   voice.gain.gain.cancelScheduledValues(now);
-  voice.gain.gain.setTargetAtTime(0, now, 0.08);
-  voice.osc.stop(now + 0.5);
-  voice.lfo.stop(now + 0.5);
+  voice.gain.gain.setTargetAtTime(0, now, 0.11);
+  voice.osc.stop(now + 0.7);
+  voice.companion.stop(now + 0.7);
+  voice.lfo.stop(now + 0.7);
+}
+
+function finishReplay(): void {
+  for (const voice of replayVoices.values()) stopVoice(voice);
+  replayVoices.clear();
+  replayPoints.clear();
+  replayLast.clear();
+  isReplaying = false;
+  replayFrame = undefined;
+  updateRecordingControls();
+}
+
+function cancelReplay(): void {
+  if (replayFrame !== undefined) cancelAnimationFrame(replayFrame);
+  if (isReplaying) finishReplay();
+}
+
+function replayRecording(): void {
+  if (recording.length === 0) return;
+  if (eraseMode) setEraser(false);
+  cancelReplay();
+  releaseAllVoices();
+  announcePlaying();
+  isReplaying = true;
+  updateRecordingControls("Replaying recorded path…");
+  getAudio();
+
+  let nextEvent = 0;
+  const startedAt = performance.now();
+
+  function frame(now: number): void {
+    const elapsed = now - startedAt;
+    while (
+      nextEvent < recording.length &&
+      recording[nextEvent].at <= elapsed
+    ) {
+      const event = recording[nextEvent++];
+      const x = event.x * canvas.width;
+      const y = event.y * canvas.height;
+      const brightness = brightnessForY(y, canvas.height);
+      if (event.erased) {
+        const erasedVoice = replayVoices.get(event.id);
+        if (erasedVoice) stopVoice(erasedVoice);
+        replayVoices.delete(event.id);
+        replayPoints.delete(event.id);
+        replayLast.delete(event.id);
+        continue;
+      }
+      const frequency =
+        frequencyForX(x, canvas.width) * event.pitchScale;
+      if (event.kind === "start") {
+        const previousVoice = replayVoices.get(event.id);
+        if (previousVoice) stopVoice(previousVoice);
+        replayVoices.set(
+          event.id,
+          startVoice(frequency, brightness),
+        );
+        replayPoints.set(event.id, { x, y, color: event.color });
+        replayLast.set(event.id, { x, y, at: event.at });
+      } else if (event.kind === "move") {
+        let voice = replayVoices.get(event.id);
+        if (!voice) {
+          voice = startVoice(frequency, brightness);
+          replayVoices.set(event.id, voice);
+        } else if (audioCtx) {
+          updateVoiceTone(voice, frequency, brightness);
+          const previous = replayLast.get(event.id);
+          if (previous) {
+            const dt = event.at - previous.at;
+            const speed =
+              dt > 0 ? Math.hypot(x - previous.x, y - previous.y) / dt : 0;
+            voice.lfoGain.gain.setTargetAtTime(
+              vibratoCentsForSpeed(speed),
+              audioCtx.currentTime,
+              0.05,
+            );
+          }
+        }
+        replayPoints.set(event.id, { x, y, color: event.color });
+        replayLast.set(event.id, { x, y, at: event.at });
+      } else {
+        const voice = replayVoices.get(event.id);
+        if (voice) stopVoice(voice);
+        replayVoices.delete(event.id);
+        replayPoints.delete(event.id);
+        replayLast.delete(event.id);
+      }
+    }
+
+    if (nextEvent < recording.length) {
+      replayFrame = requestAnimationFrame(frame);
+    } else {
+      finishReplay();
+    }
+  }
+
+  replayFrame = requestAnimationFrame(frame);
 }
 
 function announcePlaying(): void {
@@ -196,7 +542,11 @@ function announcePlaying(): void {
 // (tracked per contact point below) layers vibrato on top, so the same path
 // walked slowly vs. flicked quickly sounds different too.
 const pointerVoices = new Map<number, Voice>();
-const pointerLast = new Map<number, { x: number; y: number; t: number }>();
+const pointerLast = new Map<
+  number,
+  { x: number; y: number; t: number; pitchScale: number; color: string }
+>();
+const erasingPointers = new Set<number>();
 
 function pointerPosition(e: PointerEvent): { x: number; y: number } {
   const rect = canvas.getBoundingClientRect();
@@ -205,8 +555,92 @@ function pointerPosition(e: PointerEvent): { x: number; y: number } {
   return { x, y };
 }
 
+function distanceToSegment(
+  x: number,
+  y: number,
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+): number {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const lengthSquared = dx * dx + dy * dy;
+  const amount =
+    lengthSquared === 0
+      ? 0
+      : Math.min(
+          Math.max(((x - x1) * dx + (y - y1) * dy) / lengthSquared, 0),
+          1,
+        );
+  return Math.hypot(x - (x1 + amount * dx), y - (y1 + amount * dy));
+}
+
+function eraseAt(x: number, y: number): void {
+  const radius = 28;
+  const previous = new Map<string, RecordedEvent>();
+  let changed = false;
+  for (const event of recording) {
+    if (event.kind === "end") {
+      previous.delete(event.id);
+      continue;
+    }
+    const eventX = event.x * canvas.width;
+    const eventY = event.y * canvas.height;
+    const prior = previous.get(event.id);
+    const distance = prior
+      ? distanceToSegment(
+          x,
+          y,
+          prior.x * canvas.width,
+          prior.y * canvas.height,
+          eventX,
+          eventY,
+        )
+      : Math.hypot(x - eventX, y - eventY);
+    if (distance <= radius) {
+      event.erased = true;
+      changed = true;
+    }
+    previous.set(event.id, event);
+  }
+  if (changed) {
+    updateRecordingControls("Path edited · erase more or resume play");
+    if (reducedMotion) {
+      ctx.fillStyle = "#0b0b14";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      drawRecordedTrail();
+    }
+  }
+}
+
+function setEraser(enabled: boolean): void {
+  cancelReplay();
+  releaseAllVoices();
+  eraseMode = enabled;
+  eraserButton.setAttribute("aria-pressed", String(enabled));
+  canvas.classList.toggle("eraser-active", enabled);
+  updateRecordingControls(
+    enabled ? "Eraser on · drag across a line to remove it" : undefined,
+  );
+}
+
+function updatePointerModifierTones(shift: boolean, control: boolean): void {
+  const pitchScale = pitchScaleForModifiers(shift, control);
+  for (const [pointerId, voice] of pointerVoices) {
+    const last = pointerLast.get(pointerId);
+    if (!last || last.pitchScale === pitchScale) continue;
+    const brightness = brightnessForY(last.y, canvas.height);
+    const frequency = frequencyForX(last.x, canvas.width) * pitchScale;
+    const color = colorForSound(frequency, brightness);
+    updateVoiceTone(voice, frequency, brightness);
+    recordEvent("move", `pointer-${pointerId}`, last.x, last.y, pitchScale);
+    pointerLast.set(pointerId, { ...last, pitchScale, color });
+  }
+}
+
 canvas.addEventListener("pointerdown", (e) => {
-  announcePlaying();
+  cancelReplay();
   // Capture keeps the glide going if the pointer drifts outside the pad —
   // a nice-to-have, not a requirement for sound, so a capture failure must
   // never silently swallow the voice it's guarding.
@@ -215,6 +649,13 @@ canvas.addEventListener("pointerdown", (e) => {
   } catch {
     // Continue without capture.
   }
+  const { x, y } = pointerPosition(e);
+  if (eraseMode) {
+    erasingPointers.add(e.pointerId);
+    eraseAt(x, y);
+    return;
+  }
+  announcePlaying();
   // A second button pressed while the first is still held fires another
   // pointerdown for the *same* pointerId with no pointerup between them —
   // without this, overwriting the map entry orphans the first voice's
@@ -222,24 +663,37 @@ canvas.addEventListener("pointerdown", (e) => {
   // them (the map only ever points at the latest voice).
   const existing = pointerVoices.get(e.pointerId);
   if (existing) stopVoice(existing);
-  const { x, y } = pointerPosition(e);
-  const freq = frequencyForX(x, canvas.width);
+  const pitchScale = pitchScaleForModifiers(e.shiftKey, e.ctrlKey);
+  const freq = frequencyForX(x, canvas.width) * pitchScale;
   const brightness = brightnessForY(y, canvas.height);
+  const color = colorForSound(freq, brightness);
+  recordEvent("start", `pointer-${e.pointerId}`, x, y, pitchScale);
   pointerVoices.set(e.pointerId, startVoice(freq, brightness));
-  pointerLast.set(e.pointerId, { x, y, t: e.timeStamp });
-  if (reducedMotion) drawVoicePointStatic(x, y, brightness);
+  pointerLast.set(e.pointerId, {
+    x,
+    y,
+    t: e.timeStamp,
+    pitchScale,
+    color,
+  });
+  if (reducedMotion) drawVoicePointStatic(x, y, brightness, color);
 });
 
 canvas.addEventListener("pointermove", (e) => {
+  if (erasingPointers.has(e.pointerId)) {
+    const { x, y } = pointerPosition(e);
+    eraseAt(x, y);
+    return;
+  }
   const voice = pointerVoices.get(e.pointerId);
   if (!voice || !audioCtx) return;
   const { x, y } = pointerPosition(e);
-  const freq = frequencyForX(x, canvas.width);
+  const pitchScale = pitchScaleForModifiers(e.shiftKey, e.ctrlKey);
+  const freq = frequencyForX(x, canvas.width) * pitchScale;
   const brightness = brightnessForY(y, canvas.height);
-  const cutoff = filterFreqForT(freq, brightness);
-  voice.freq = freq;
-  voice.osc.frequency.setTargetAtTime(freq, audioCtx.currentTime, 0.03);
-  voice.filter.frequency.setTargetAtTime(cutoff, audioCtx.currentTime, 0.03);
+  const color = colorForSound(freq, brightness);
+  recordEvent("move", `pointer-${e.pointerId}`, x, y, pitchScale);
+  updateVoiceTone(voice, freq, brightness);
 
   const last = pointerLast.get(e.pointerId);
   if (last) {
@@ -249,14 +703,28 @@ canvas.addEventListener("pointermove", (e) => {
     const depth = vibratoCentsForSpeed(speed);
     voice.lfoGain.gain.setTargetAtTime(depth, audioCtx.currentTime, 0.05);
   }
-  pointerLast.set(e.pointerId, { x, y, t: e.timeStamp });
+  pointerLast.set(e.pointerId, { x, y, t: e.timeStamp, pitchScale, color });
 
-  if (reducedMotion) drawVoicePointStatic(x, y, brightness);
+  if (reducedMotion) drawVoicePointStatic(x, y, brightness, color);
 });
 
 function releasePointer(e: PointerEvent): void {
+  if (erasingPointers.delete(e.pointerId)) {
+    updateRecordingControls(eraseMode ? "Eraser on · path updated" : undefined);
+    return;
+  }
   const voice = pointerVoices.get(e.pointerId);
   if (!voice) return;
+  const last = pointerLast.get(e.pointerId);
+  if (last) {
+    recordEvent(
+      "end",
+      `pointer-${e.pointerId}`,
+      last.x,
+      last.y,
+      last.pitchScale,
+    );
+  }
   stopVoice(voice);
   pointerVoices.delete(e.pointerId);
   pointerLast.delete(e.pointerId);
@@ -284,6 +752,15 @@ function redrawKeyboardVoicesStatic(): void {
 }
 
 window.addEventListener("keydown", (e) => {
+  if (
+    e.code === "ShiftLeft" ||
+    e.code === "ShiftRight" ||
+    e.code === "ControlLeft" ||
+    e.code === "ControlRight"
+  ) {
+    if (!e.repeat) updatePointerModifierTones(e.shiftKey, e.ctrlKey);
+    return;
+  }
   if (e.code === "ArrowUp" || e.code === "ArrowDown") {
     e.preventDefault();
     const delta = e.code === "ArrowUp" ? 1 : -1;
@@ -293,8 +770,7 @@ window.addEventListener("keydown", (e) => {
     );
     if (audioCtx) {
       for (const voice of keyVoices.values()) {
-        const cutoff = filterFreqForT(voice.freq, keyboardBrightness);
-        voice.filter.frequency.setTargetAtTime(cutoff, audioCtx.currentTime, 0.03);
+        updateVoiceTone(voice, voice.freq, keyboardBrightness);
       }
     }
     if (reducedMotion) redrawKeyboardVoicesStatic();
@@ -302,18 +778,38 @@ window.addEventListener("keydown", (e) => {
   }
   const index = KEY_NOTES[e.code];
   if (index === undefined || e.repeat || keyVoices.has(e.code)) return;
+  cancelReplay();
   announcePlaying();
   const freq = SCALE[index];
   const x = (index / (SCALE.length - 1)) * canvas.width;
   const y = (1 - keyboardBrightness) * canvas.height;
+  recordEvent("start", `key-${e.code}`, x, y);
   keyVoices.set(e.code, startVoice(freq, keyboardBrightness));
   keyPositions.set(e.code, x);
   if (reducedMotion) drawVoicePointStatic(x, y, keyboardBrightness);
 });
 
 window.addEventListener("keyup", (e) => {
+  if (
+    e.code === "ShiftLeft" ||
+    e.code === "ShiftRight" ||
+    e.code === "ControlLeft" ||
+    e.code === "ControlRight"
+  ) {
+    updatePointerModifierTones(e.shiftKey, e.ctrlKey);
+    return;
+  }
   const voice = keyVoices.get(e.code);
   if (!voice) return;
+  const x = keyPositions.get(e.code);
+  if (x !== undefined) {
+    recordEvent(
+      "end",
+      `key-${e.code}`,
+      x,
+      (1 - keyboardBrightness) * canvas.height,
+    );
+  }
   stopVoice(voice);
   keyVoices.delete(e.code);
   keyPositions.delete(e.code);
@@ -341,6 +837,21 @@ document.addEventListener("visibilitychange", () => {
   if (document.hidden) releaseAllVoices();
 });
 
+replayButton.addEventListener("click", replayRecording);
+eraserButton.addEventListener("click", () => setEraser(!eraseMode));
+clearButton.addEventListener("click", () => {
+  if (eraseMode) setEraser(false);
+  cancelReplay();
+  recording.length = 0;
+  recordingLastSample.clear();
+  recordedDuration = 0;
+  lastRecordedAt = undefined;
+  ctx.fillStyle = "#0b0b14";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  updateRecordingControls();
+});
+
 window.addEventListener("resize", resizeCanvas);
 resizeCanvas();
+updateRecordingControls();
 if (!reducedMotion) requestAnimationFrame(idleLoop);
